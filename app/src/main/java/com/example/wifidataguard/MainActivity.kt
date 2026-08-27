@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -14,10 +15,14 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.text.Html
 import android.view.LayoutInflater
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ProgressBar
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -34,9 +39,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cbHard: CheckBox
     private lateinit var swMonitor: Switch
     private lateinit var tvStatus: TextView
+    private lateinit var tvUsageBig: TextView
+    private lateinit var tvUsageSub: TextView
+    private lateinit var tvStatusTitle: TextView
     private lateinit var pbUsage: ProgressBar
+    private lateinit var spUnlock: Spinner
+    private lateinit var btnUnlock: Button
 
     private var fa = false
+
+    private val unlockOptions = intArrayOf(5, 15, 30, 60, 0)   // minutes; 0 = until period end
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val uiTick = object : Runnable {
@@ -49,10 +61,7 @@ class MainActivity : AppCompatActivity() {
     private val vpnLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == RESULT_OK) completeEnable()
-        else {
-            swMonitor.isChecked = false
-            toast(tr(T.vpnRefused))
-        }
+        else { swMonitor.isChecked = false; toast(tr(T.vpnRefused)) }
     }
 
     private fun lang() = if (fa) "fa" else "en"
@@ -63,18 +72,40 @@ class MainActivity : AppCompatActivity() {
         fa = Prefs.lang(this) == "fa"
         setContentView(R.layout.activity_main)
 
-        etLimit   = findViewById(R.id.etLimit)
-        cbMonthly = findViewById(R.id.cbMonthly)
-        cbHard    = findViewById(R.id.cbHard)
-        swMonitor = findViewById(R.id.swMonitor)
-        tvStatus  = findViewById(R.id.tvStatus)
-        pbUsage   = findViewById(R.id.pbUsage)
+        etLimit       = findViewById(R.id.etLimit)
+        cbMonthly     = findViewById(R.id.cbMonthly)
+        cbHard        = findViewById(R.id.cbHard)
+        swMonitor     = findViewById(R.id.swMonitor)
+        tvStatus      = findViewById(R.id.tvStatus)
+        tvUsageBig    = findViewById(R.id.tvUsageBig)
+        tvUsageSub    = findViewById(R.id.tvUsageSub)
+        tvStatusTitle = findViewById(R.id.tvStatusTitle)
+        pbUsage       = findViewById(R.id.pbUsage)
+        spUnlock      = findViewById(R.id.spUnlock)
+        btnUnlock     = findViewById(R.id.btnUnlock)
 
         val limMb = Prefs.limitBytes(this) / (1024 * 1024)
         if (limMb > 0) etLimit.setText(limMb.toString())
         cbMonthly.isChecked = Prefs.monthlyReset(this)
         cbHard.isChecked    = Prefs.hardMode(this)
         swMonitor.isChecked = Prefs.monitoring(this)
+
+        // unlock-duration spinner
+        val labels = unlockOptions.map { m ->
+            if (m == 0) tr(T.untilPeriod)
+            else tr(T.minutesFmt).replace("%d", m.toString())
+        }
+        val adapter = ArrayAdapter(this, R.layout.spinner_item, labels)
+        adapter.setDropDownViewResource(R.layout.spinner_item)
+        spUnlock.adapter = adapter
+        val savedIdx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
+        spUnlock.setSelection(savedIdx)
+        spUnlock.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                Prefs.setUnlockMinutes(this@MainActivity, unlockOptions[pos])
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
 
         findViewById<Button>(R.id.btnLang).setOnClickListener {
             fa = !fa
@@ -114,6 +145,8 @@ class MainActivity : AppCompatActivity() {
         refreshUi()
     }
 
+    // ================= texts =================
+
     private object T {
         val vpnRefused = mapOf("en" to "VPN consent refused", "fa" to "مجوز VPN رد شد")
         val save    = mapOf("en" to "Change limit", "fa" to "تغییر حد مصرف")
@@ -133,6 +166,21 @@ class MainActivity : AppCompatActivity() {
             "fa" to "حالت سخت (قطع کل اینترنت با VPN)")
         val mapEnforce = mapOf("en" to "Enforce limit", "fa" to "اجرا و نظارت")
         val mapHint    = mapOf("en" to "Limit in MB (e.g. 750)", "fa" to "حد به مگابایت (مثلا ۷۵۰)")
+        val minutesFmt = mapOf("en" to "%d minutes", "fa" to "‏%d دقیقه")
+        val untilPeriod= mapOf("en" to "Until period end", "fa" to "تا پایان دوره")
+        val usage      = mapOf("en" to "USAGE", "fa" to "مصرف")
+        val rearm      = mapOf("en" to "Re-arms in %s ⏳", "fa" to "قفل مجدد در %s ⏳")
+        val blocked    = mapOf("en" to "BLOCKED", "fa" to "قفل شده")
+        val grace      = mapOf("en" to "FREE TIME", "fa" to "مهلت آزاد")
+        val lockNow    = mapOf("en" to "Lock again now", "fa" to "قفل کن همین حالا")
+        val unlockedMsg= mapOf("en" to "Unlocked", "fa" to "آزاد شد")
+        val protected_ = mapOf("en" to "Protected", "fa" to "محافظت فعال")
+        val noLimit    = mapOf("en" to "no limit set", "fa" to "حدی تعیین نشده")
+        val checklist  = mapOf("en" to "Checklist:", "fa" to "چک‌لیست:")
+        val pinLbl     = mapOf("en" to "PIN", "fa" to "رمز")
+        val usageAccLbl= mapOf("en" to "Usage access", "fa" to "Usage access")
+        val ownerLbl   = mapOf("en" to "Device owner", "fa" to "Device Owner")
+        val enforceLbl = mapOf("en" to "Enforce ON", "fa" to "نظارت روشن")
     }
 
     private fun applyTexts() {
@@ -147,9 +195,10 @@ class MainActivity : AppCompatActivity() {
         cbHard.text    = tr(T.mapHard)
         swMonitor.text = tr(T.mapEnforce)
         etLimit.hint   = tr(T.mapHint)
+        tvStatusTitle.text = tr(T.usage)
     }
 
-    // ---------- PIN gate ----------
+    // ================= PIN gate =================
 
     private fun guarded(actionTitle: String, action: () -> Unit) {
         if (!Prefs.pinSet(this)) {
@@ -216,7 +265,7 @@ class MainActivity : AppCompatActivity() {
         } else askNewPinDouble(if (fa) "ساخت رمز" else "Create PIN")
     }
 
-    // ---------- actions ----------
+    // ================= actions =================
 
     private fun save() {
         val mb = etLimit.text.toString().trim().toDoubleOrNull() ?: 0.0
@@ -278,14 +327,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun unlockFlow() {
+        val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
+        if (graceLeft > 0 && graceLeft != Long.MAX_VALUE / 1000) {
+            // clicking during grace = lock again NOW
+            Prefs.setGraceUntil(this, 0L)
+            Logger.d(this, "grace cancelled by user -> re-arm immediately")
+            immediateReevaluate()
+            toast(if (fa) tr(T.lockNow) else tr(T.lockNow))
+            refreshUi(); return
+        }
         guarded(tr(T.unlock)) {
             WatchdogService.unlatch(this)
             DataStats.resetBaseline(this)
             LiveCounter.resetToZero()
-            Prefs.setGraceUntil(this, System.currentTimeMillis() + 5 * 60 * 1000L)
-            Logger.d(this, "UNLOCK: unlatch + rebaseline + grace 5min")
+            val mins = Prefs.unlockMinutes(this)
+            val until = if (mins <= 0) Long.MAX_VALUE
+            else System.currentTimeMillis() + mins * 60_000L
+            Prefs.setGraceUntil(this, until)
+            Logger.d(this, "UNLOCK: grace ${mins}min (0=period)")
             immediateReevaluate()
-            toast(if (fa) "آزاد شد — تایمر روی دکمه" else "Unlocked — timer on button")
+            toast(tr(T.unlockedMsg))
             refreshUi()
         }
     }
@@ -358,7 +419,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    // ---------- UI ----------
+    // ================= UI =================
 
     private fun fmt(sec: Long): String =
         String.format(java.util.Locale.US, "%d:%02d", sec / 60, sec % 60)
@@ -368,41 +429,65 @@ class MainActivity : AppCompatActivity() {
         val used = LiveCounter.currentBytes()
         val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
 
-        var line = ""
-        if (limit <= 0) line += if (fa) "حدی تعیین نشده\n" else "No limit set\n"
-        else {
-            val pct = ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
-            pbUsage.progress = pct
-            line += (if (fa) "مصرف: " else "Usage: ") +
-                    "${humanize(used)} / ${humanize(limit)} ($pct%)\n"
+        // big usage number
+        tvUsageBig.text = humanize(used)
+        tvUsageSub.text = if (limit > 0)
+            "/ ${humanize(limit)} • ${pct(used, limit)}%"
+        else tr(T.noLimit)
+
+        // progress bar + color
+        if (limit > 0) {
+            val p = ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
+            pbUsage.progress = p
+            pbUsage.progressTintList = android.content.res.ColorStateList.valueOf(
+                when {
+                    p >= 100 -> Color.parseColor("#E53935")
+                    p >= 80  -> Color.parseColor("#FB8C00")
+                    else     -> Color.parseColor("#43A047")
+                })
         }
 
-        val btnU = findViewById<Button>(R.id.btnUnlock)
-        line += when {
-            graceLeft > 0 -> {
-                btnU.text = if (fa) "قفل دوباره در ${fmt(graceLeft)} ⏳"
-                else "Re-arms in ${fmt(graceLeft)} ⏳"
-                if (fa) "وضعیت: مهلت آزاد ⏳\n" else "STATUS: grace ⏳\n"
+        // unlock button + status line
+        val statusLine = when {
+            graceLeft > 0 && graceLeft != Long.MAX_VALUE / 1000 -> {
+                btnUnlock.text = tr(T.rearm).replace("%s", fmt(graceLeft))
+                btnUnlock.backgroundTintList = android.content.res.ColorStateList
+                    .valueOf(Color.parseColor("#FB8C00"))
+                "⏳ ${tr(T.grace)}"
             }
             WatchdogService.latched -> {
-                btnU.text = tr(T.mapUnlock)
-                if (fa) "وضعیت: قفل 🔒\n" else "STATUS: BLOCKED 🔒\n"
+                btnUnlock.text = tr(T.mapUnlock)
+                btnUnlock.backgroundTintList = android.content.res.ColorStateList
+                    .valueOf(Color.parseColor("#43A047"))
+                "🔒 ${tr(T.blocked)}"
             }
-            else -> { btnU.text = tr(T.mapUnlock); "" }
+            else -> {
+                btnUnlock.text = tr(T.mapUnlock)
+                btnUnlock.backgroundTintList = android.content.res.ColorStateList
+                    .valueOf(Color.parseColor("#43A047"))
+                "✅ ${tr(T.protected_)}"
+            }
         }
 
-        line += "\n" + (if (fa) "چک‌لیست:\n" else "Checklist:\n") +
-                mark(Prefs.pinSet(this)) + (if (fa) "رمز\n" else "PIN\n") +
-                mark(DataStats.hasUsageAccess(this)) +
-                (if (fa) "Usage access\n" else "Usage access\n") +
-                mark(OwnerEnforcer.isDeviceOwner(this)) +
-                (if (fa) "Device Owner\n" else "Device owner\n") +
-                mark(Prefs.monitoring(this)) +
-                (if (fa) "نظارت روشن\n" else "Enforce ON\n")
-        tvStatus.text = line
+        val checklist = buildString {
+            append("\n")
+            append(tr(T.checklist)).append("\n")
+            append(mark(Prefs.pinSet(this@MainActivity))).append(tr(T.pinLbl)).append("\n")
+            append(mark(DataStats.hasUsageAccess(this@MainActivity)))
+                .append(tr(T.usageAccLbl)).append("\n")
+            append(mark(OwnerEnforcer.isDeviceOwner(this@MainActivity)))
+                .append(tr(T.ownerLbl)).append("\n")
+            append(mark(Prefs.monitoring(this@MainActivity)))
+                .append(tr(T.enforceLbl))
+        }
+
+        tvStatus.text = checklist + "\n" + statusLine
     }
 
-    private fun mark(ok: Boolean) = if (ok) "[x] " else "[ ] "
+    private fun pct(used: Long, limit: Long): Int =
+        if (limit <= 0) 0 else ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
+
+    private fun mark(ok: Boolean) = if (ok) "☑ " else "☐ "
 
     private fun humanize(b: Long) =
         if (b >= 1073741824) String.format(java.util.Locale.US, "%.2f GB", b / 1073741824.0)

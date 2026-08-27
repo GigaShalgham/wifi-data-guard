@@ -82,4 +82,7 @@ object Prefs {
         if (monthlyReset(c)) cal.set(Calendar.DAY_OF_MONTH, 1)
         return cal.timeInMillis
     }
+    // unlock duration in minutes (0 = until end of period)
+    fun unlockMinutes(c: Context): Int = sp(c).getInt("unlock_minutes", 5)
+    fun setUnlockMinutes(c: Context, v: Int) = sp(c).edit().putInt("unlock_minutes", v).apply()
 }

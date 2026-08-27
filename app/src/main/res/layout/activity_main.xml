@@ -1,109 +1,270 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#0E1420"
+    android:fillViewport="true">
 
     <LinearLayout
         android:orientation="vertical"
-        android:padding="20dp"
+        android:padding="16dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Wi-Fi Data Guard"
-            android:textSize="22sp"
-            android:textStyle="bold"/>
-
-        <TextView
-            android:id="@+id/tvStatus"
+        <!-- Header -->
+        <LinearLayout
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:typeface="monospace"
-            android:textSize="14sp"
-            android:text="…"/>
+            android:layout_height="wrap_content">
 
-        <EditText
-            android:id="@+id/etLimit"
+            <TextView
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:text="🛡 Wi-Fi Data Guard"
+                android:textSize="19sp"
+                android:textStyle="bold"
+                android:textColor="#E8ECF8"/>
+
+            <Button
+                android:id="@+id/btnLang"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_card"
+                android:textColor="#E8ECF8"
+                android:textSize="13sp"
+                android:textAllCaps="false"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:text="🌐"/>
+        </LinearLayout>
+
+        <!-- Usage card -->
+        <LinearLayout
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="20dp"
+            android:layout_marginTop="14dp"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:inputType="numberDecimal"
-            android:hint="Wi-Fi limit in MB (e.g. 750)"/>
+            android:layout_height="wrap_content">
 
-        <CheckBox
-            android:id="@+id/cbMonthly"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Reset monthly (otherwise daily)"/>
+            <TextView
+                android:id="@+id/tvStatusTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="12sp"
+                android:letterSpacing="0.15"
+                android:textAllCaps="true"
+                android:textColor="#8A96B8"
+                android:text="USAGE"/>
 
-        <CheckBox
-            android:id="@+id/cbHard"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Hard mode: block ALL internet via VPN while locked"/>
-        <Button
-            android:id="@+id/btnLang"
+            <TextView
+                android:id="@+id/tvUsageBig"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textSize="40sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:typeface="monospace"
+                android:text="0.0 MB"/>
+
+            <TextView
+                android:id="@+id/tvUsageSub"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textSize="14sp"
+                android:textColor="#8A96B8"
+                android:text="—"/>
+
+            <ProgressBar
+                android:id="@+id/pbUsage"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:max="100"
+                android:progressTint="#7C8CFF"
+                android:progressBackgroundTint="#2A3550"/>
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:typeface="monospace"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:textColor="#8A96B8"
+                android:text=""/>
+        </LinearLayout>
+
+        <!-- Settings card -->
+        <LinearLayout
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="20dp"
+            android:layout_marginTop="14dp"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🌐 فارسی"/>
-        <Button
-            android:id="@+id/btnSave"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Save limit"/>
+            android:layout_height="wrap_content">
 
-        <Button
-            android:id="@+id/btnReset"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Reset usage counter"/>
+            <EditText
+                android:id="@+id/etLimit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="numberDecimal"
+                android:hint="Limit in MB (e.g. 750)"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#5A6684"
+                android:textSize="16sp"/>
 
-        <ProgressBar
-            android:id="@+id/pbUsage"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:max="100"/>
+            <CheckBox
+                android:id="@+id/cbMonthly"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#C9D2E8"
+                android:buttonTint="#7C8CFF"
+                android:textSize="14sp"
+                android:text="Monthly reset"/>
 
+            <CheckBox
+                android:id="@+id/cbHard"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#C9D2E8"
+                android:buttonTint="#7C8CFF"
+                android:textSize="14sp"
+                android:text="Hard mode (VPN blocks ALL internet)"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:textSize="12sp"
+                android:letterSpacing="0.1"
+                android:textAllCaps="true"
+                android:textColor="#8A96B8"
+                android:text="⏱ UNLOCK DURATION"/>
+
+            <Spinner
+                android:id="@+id/spUnlock"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/bg_card"
+                android:padding="8dp"/>
+
+            <LinearLayout
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <Button
+                    android:id="@+id/btnSave"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="6dp"
+                    android:backgroundTint="#7C8CFF"
+                    android:textColor="#0E1420"
+                    android:textStyle="bold"
+                    android:textAllCaps="false"
+                    android:text="Save"/>
+
+                <Button
+                    android:id="@+id/btnReset"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="6dp"
+                    android:backgroundTint="#2A3550"
+                    android:textColor="#C9D2E8"
+                    android:textAllCaps="false"
+                    android:text="Reset"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Unlock big button -->
         <Button
             android:id="@+id/btnUnlock"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Unlock (requires PIN)"/>
+            android:layout_height="58dp"
+            android:layout_marginTop="14dp"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:backgroundTint="#2ECC71"
+            android:textColor="#0E1420"
+            android:textAllCaps="false"
+            android:text="Unlock (PIN)"/>
 
-        <Button
-            android:id="@+id/btnGrant"
+        <!-- Tools -->
+        <LinearLayout
+            android:orientation="vertical"
+            android:background="@drawable/bg_card"
+            android:padding="16dp"
+            android:layout_marginTop="14dp"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Fix permissions"/>
+            android:layout_height="wrap_content">
 
-        <Button
-            android:id="@+id/btnOwner"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Device-owner setup guide (adb)"/>
+            <Button
+                android:id="@+id/btnGrant"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#2A3550"
+                android:textColor="#C9D2E8"
+                android:textAllCaps="false"
+                android:text="Fix permissions"/>
 
-        <Button
-            android:id="@+id/btnPin"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Set / change PIN"/>
+            <Button
+                android:id="@+id/btnPin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#2A3550"
+                android:textColor="#C9D2E8"
+                android:textAllCaps="false"
+                android:text="Set / change PIN"/>
 
-        <Button
-            android:id="@+id/btnLogs"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="View logs"/>
+            <Button
+                android:id="@+id/btnLogs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#2A3550"
+                android:textColor="#C9D2E8"
+                android:textAllCaps="false"
+                android:text="View logs"/>
 
-        <Switch
-            android:id="@+id/swMonitor"
+            <Button
+                android:id="@+id/btnOwner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#2A3550"
+                android:textColor="#C9D2E8"
+                android:textAllCaps="false"
+                android:text="Device-owner guide (adb)"/>
+
+            <Switch
+                android:id="@+id/swMonitor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="#C9D2E8"
+                android:textSize="15sp"
+                android:text="Enforce limit"/>
+        </LinearLayout>
+
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="Enforce limit (requires PIN to disable)"/>
+            android:layout_marginBottom="8dp"
+            android:gravity="center"
+            android:textSize="11sp"
+            android:textColor="#5A6684"
+            android:text="😈 little devil edition"/>
     </LinearLayout>
 </ScrollView>

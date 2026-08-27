@@ -106,8 +106,8 @@ class WatchdogService : Service() {
 
         val limit = Prefs.limitBytes(this)
         val used = LiveCounter.currentBytes()
-        val grace = System.currentTimeMillis() < Prefs.graceUntil(this)
-
+        val grace = Prefs.graceUntil(this) > 0 &&
+                System.currentTimeMillis() < Prefs.graceUntil(this)
         // period rollover (midnight / month) -> fresh start
         val nowPeriod = Prefs.currentPeriodStart(this)
         if (nowPeriod != lastPeriod) {
