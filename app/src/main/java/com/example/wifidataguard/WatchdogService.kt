@@ -70,7 +70,7 @@ class WatchdogService : Service() {
                 NotificationManager.IMPORTANCE_LOW))
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("alerts", "Limit warnings",
-                NotificationManager.IMPORTANCE_HIGH))
+                NotificationManager.IMPORTANCE_MAX))
         ContextCompat.registerReceiver(this, wifiGuard,
             IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION),
             ContextCompat.RECEIVER_EXPORTED)
@@ -122,6 +122,18 @@ class WatchdogService : Service() {
             latched = true
             persistLatched(this, true)
             Logger.d(this, "*** LIMIT HIT (${humanize(used)}) -> LATCHED ***")
+
+            val banner = Notification.Builder(this, "alerts")
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentTitle(if (Prefs.lang(this) == "fa") "🔒 مصرف به پایان رسید"
+                else "🔒 Limit reached")
+                .setContentText(if (Prefs.lang(this) == "fa")
+                    "اینترنت تا پایان امروز قفل شد"
+                else "Internet is locked until tomorrow")
+                .setAutoCancel(true)
+                .setContentIntent(openApp())
+                .build()
+            getSystemService(NotificationManager::class.java).notify(5, banner)
         }
 
         Logger.d(this, "tick live=${humanize(used)} limit=${humanize(limit)} " +
