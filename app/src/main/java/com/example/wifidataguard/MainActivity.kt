@@ -328,7 +328,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun unlockFlow() {
         val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
-        if (graceLeft > 0 && graceLeft != Long.MAX_VALUE / 1000) {
+        if (graceLeft > 0) {
             // clicking during grace = lock again NOW
             Prefs.setGraceUntil(this, 0L)
             Logger.d(this, "grace cancelled by user -> re-arm immediately")
@@ -341,7 +341,7 @@ class MainActivity : AppCompatActivity() {
             DataStats.resetBaseline(this)
             LiveCounter.resetToZero()
             val mins = Prefs.unlockMinutes(this)
-            val until = if (mins <= 0) Long.MAX_VALUE
+            val until = if (mins <= 0) endOfPeriod(this)
             else System.currentTimeMillis() + mins * 60_000L
             Prefs.setGraceUntil(this, until)
             Logger.d(this, "UNLOCK: grace ${mins}min (0=period)")
@@ -350,7 +350,20 @@ class MainActivity : AppCompatActivity() {
             refreshUi()
         }
     }
-
+    private fun endOfPeriod(c: android.content.Context): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        if (Prefs.monthlyReset(c)) {
+            cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+            cal.add(java.util.Calendar.MONTH, 1)
+        } else {
+            cal.add(java.util.Calendar.DAY_OF_MONTH, 1)
+        }
+        return cal.timeInMillis
+    }
     private fun fixPermissions() {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
                 this, Manifest.permission.POST_NOTIFICATIONS)
@@ -449,7 +462,7 @@ class MainActivity : AppCompatActivity() {
 
         // unlock button + status line
         val statusLine = when {
-            graceLeft > 0 && graceLeft != Long.MAX_VALUE / 1000 -> {
+            graceLeft > 0 -> {
                 btnUnlock.text = tr(T.rearm).replace("%s", fmt(graceLeft))
                 btnUnlock.backgroundTintList = android.content.res.ColorStateList
                     .valueOf(Color.parseColor("#FB8C00"))

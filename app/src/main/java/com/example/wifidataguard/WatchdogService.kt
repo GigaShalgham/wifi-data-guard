@@ -21,7 +21,6 @@ import java.util.Locale
 class WatchdogService : Service() {
 
     companion object {
-        /** Latch survives process death via prefs; static for instant access from UI. */
         @Volatile var latched = false
             private set
 
@@ -70,7 +69,7 @@ class WatchdogService : Service() {
                 NotificationManager.IMPORTANCE_LOW))
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("alerts", "Limit warnings",
-                NotificationManager.IMPORTANCE_MAX))
+                NotificationManager.IMPORTANCE_HIGH))
         ContextCompat.registerReceiver(this, wifiGuard,
             IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION),
             ContextCompat.RECEIVER_EXPORTED)
@@ -79,7 +78,7 @@ class WatchdogService : Service() {
         latched = restoreLatched(this)
         LiveCounter.seedWith(
             DataStats.effectiveUsage(this, lastPeriod).coerceAtLeast(0))
-        Logger.d(this, "Watchdog created (TrafficStats, latched=$latched)")
+        Logger.d(this, "Watchdog created (latched=$latched)")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -106,16 +105,17 @@ class WatchdogService : Service() {
 
         val limit = Prefs.limitBytes(this)
         val used = LiveCounter.currentBytes()
-        val grace = Prefs.graceUntil(this) > 0 &&
-                System.currentTimeMillis() < Prefs.graceUntil(this)
-        // period rollover (midnight / month) -> fresh start
+        val grace = System.currentTimeMillis() < Prefs.graceUntil(this)
+
+        // period rollover (midnight / month) -> fresh start AND clear grace
         val nowPeriod = Prefs.currentPeriodStart(this)
         if (nowPeriod != lastPeriod) {
             lastPeriod = nowPeriod
             latched = false
             persistLatched(this, false)
+            Prefs.setGraceUntil(this, 0L)          // <<< FIX: kill "period-end" grace
             LiveCounter.seedWith(DataStats.effectiveUsage(this, nowPeriod).coerceAtLeast(0))
-            Logger.d(this, "new period -> latch reset")
+            Logger.d(this, "new period -> latch + grace reset")
         }
 
         if (!latched && !grace && limit > 0 && used >= limit) {
@@ -166,7 +166,9 @@ class WatchdogService : Service() {
         }
     }
 
-    private fun fmt(sec: Long): String =
+    private fun fmt(sec: Long): String = if (sec >= 3600)
+        String.format(Locale.US, "%d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60)
+    else
         String.format(Locale.US, "%d:%02d", sec / 60, sec % 60)
 
     private fun humanize(b: Long) =
