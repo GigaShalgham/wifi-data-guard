@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# IDE folder (should never be in VCS)
+/.idea/
+
+# Release signing secrets — never commit
+keystore.properties
+*.jks
+*.keystore
+/keystore/

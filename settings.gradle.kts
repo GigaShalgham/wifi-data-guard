@@ -5,6 +5,8 @@ pluginManagement {
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
         maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
+        // official repos as fallback (mirrors first keep builds working behind restricted networks)
+        google()
         gradlePluginPortal()
     }
 }
@@ -15,6 +17,9 @@ dependencyResolutionManagement {
         maven { url = uri("https://maven.aliyun.com/repository/public") }
         maven { url = uri("https://mirrors.cloud.tencent.com/nexus/repository/maven-public/") }
         maven { url = uri("https://repo.huaweicloud.com/repository/maven/") }
+        // official repos as fallback (mirrors first keep builds working behind restricted networks)
+        google()
+        mavenCentral()
     }
 }
 rootProject.name = "DataGuard"
