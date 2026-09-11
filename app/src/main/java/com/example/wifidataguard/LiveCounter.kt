@@ -41,9 +41,19 @@ object LiveCounter {
         lastTx = TrafficStats.getTotalTxBytes()
     }
 
-    /** Seed once (service create / new period) from authoritative stats. */
+    /** Seed once (service create) from authoritative stats; never lowers the value. */
     fun seedWith(bytes: Long) {
         if (bytes > live.get()) live.set(bytes)
+        lastRx = TrafficStats.getTotalRxBytes()
+        lastTx = TrafficStats.getTotalTxBytes()
+    }
+
+    /**
+     * Force-set the counter (period rollover): unlike [seedWith] this can
+     * LOWER the value, because a new period genuinely restarts from zero.
+     */
+    fun resetTo(bytes: Long) {
+        live.set(bytes.coerceAtLeast(0))
         lastRx = TrafficStats.getTotalRxBytes()
         lastTx = TrafficStats.getTotalTxBytes()
     }

@@ -16,6 +16,10 @@
 
     <application
         android:name=".GuardApp"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:supportsRtl="true"
         android:label="Wi-Fi Data Guard"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.DataGuard">

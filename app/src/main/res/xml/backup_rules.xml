@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+   Wi-Fi Data Guard: never back up the PIN hash, preferences or logs.
+   The manifest also sets android:allowBackup="false"; these rules are a
+   second line of defence in case that flag is ever flipped back.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="sharedpref" path="guard_prefs.xml" />
+    <exclude domain="file" path="guard_log.txt" />
 </full-backup-content>

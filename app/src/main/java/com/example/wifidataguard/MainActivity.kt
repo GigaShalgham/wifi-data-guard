@@ -48,6 +48,14 @@ class MainActivity : AppCompatActivity() {
 
     private var fa = false
 
+    // guards against programmatic listener echo (switch / checkbox / spinner)
+    private var suppressSw = false
+    private var suppressHard = false
+    private var suppressSpinner = false
+
+    private var uiTickCount = 0
+    private var cachedChecklist = ""
+
     private val unlockOptions = intArrayOf(5, 15, 30, 60, 0)   // minutes; 0 = until period end
 
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -61,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     private val vpnLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()) { r ->
         if (r.resultCode == RESULT_OK) completeEnable()
-        else { swMonitor.isChecked = false; toast(tr(T.vpnRefused)) }
+        else { setMonitorSwitch(false); toast(tr(T.vpnRefused)) }
     }
 
     private fun lang() = if (fa) "fa" else "en"
@@ -102,7 +110,12 @@ class MainActivity : AppCompatActivity() {
         spUnlock.setSelection(savedIdx)
         spUnlock.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                Prefs.setUnlockMinutes(this@MainActivity, unlockOptions[pos])
+                if (suppressSpinner) return
+                if (Prefs.monitoring(this@MainActivity)) {
+                    // guard is armed: changing the unlock duration needs the PIN
+                    revertSpinner()
+                    guarded(tr(T.unlockDur)) { applySpinner(pos) }
+                } else applySpinner(pos)
             }
             override fun onNothingSelected(p: AdapterView<*>?) {}
         }
@@ -114,8 +127,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         cbHard.setOnCheckedChangeListener { _, checked ->
-            Prefs.setHardMode(this, checked)
-            immediateReevaluate()
+            if (suppressHard) return@setOnCheckedChangeListener
+            if (Prefs.monitoring(this) || WatchdogService.latched) {
+                // FIX: enforcement mode is a security setting -> PIN-gated while armed
+                setHardChecked(!checked)
+                guarded(if (checked) tr(T.hardOn) else tr(T.hardOff)) {
+                    setHardChecked(checked)
+                    Prefs.setHardMode(this, checked)
+                    immediateReevaluate()
+                }
+            } else {
+                Prefs.setHardMode(this, checked)
+                immediateReevaluate()
+            }
         }
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
@@ -129,6 +153,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnOwner).setOnClickListener  { showOwnerGuide() }
 
         swMonitor.setOnCheckedChangeListener { _, checked ->
+            if (suppressSw) return@setOnCheckedChangeListener
             if (checked) beginEnable()
             else guarded(tr(T.turnOff)) { disableEverything() }
         }
@@ -153,6 +178,9 @@ class MainActivity : AppCompatActivity() {
         val reset   = mapOf("en" to "Reset counter", "fa" to "صفر کردن شمارنده")
         val turnOff = mapOf("en" to "Turn OFF the guard", "fa" to "خاموش کردن محافظ")
         val unlock  = mapOf("en" to "Unlock", "fa" to "باز کردن قفل")
+        val unlockDur = mapOf("en" to "Change unlock duration", "fa" to "تغییر مدت قفل باز")
+        val hardOn  = mapOf("en" to "Enable hard mode", "fa" to "روشن کردن حالت سخت")
+        val hardOff = mapOf("en" to "Disable hard mode", "fa" to "خاموش کردن حالت سخت")
 
         val mapSave    = mapOf("en" to "Save limit", "fa" to "ذخیره حد")
         val mapReset   = mapOf("en" to "Reset usage counter", "fa" to "صفر کردن شمارنده")
@@ -196,6 +224,52 @@ class MainActivity : AppCompatActivity() {
         swMonitor.text = tr(T.mapEnforce)
         etLimit.hint   = tr(T.mapHint)
         tvStatusTitle.text = tr(T.usage)
+        rebuildSpinnerLabels()
+    }
+
+    // ---- programmatic-change helpers (prevent listener echo storms) ----
+
+    private fun setMonitorSwitch(checked: Boolean) {
+        suppressSw = true
+        swMonitor.isChecked = checked
+        suppressSw = false
+    }
+
+    private fun setHardChecked(checked: Boolean) {
+        suppressHard = true
+        cbHard.isChecked = checked
+        suppressHard = false
+    }
+
+    private fun applySpinner(pos: Int) {
+        Prefs.setUnlockMinutes(this, unlockOptions[pos])
+        spUnlock.setSelection(pos)
+        suppressSpinnerBriefly()
+    }
+
+    private fun revertSpinner() {
+        val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
+        spUnlock.setSelection(idx)
+        suppressSpinnerBriefly()
+    }
+
+    private fun rebuildSpinnerLabels() {
+        val labels = unlockOptions.map { m ->
+            if (m == 0) tr(T.untilPeriod)
+            else tr(T.minutesFmt).replace("%d", m.toString())
+        }
+        val ad = spUnlock.adapter as? ArrayAdapter<String> ?: return
+        ad.clear(); ad.addAll(labels); ad.notifyDataSetChanged()
+        val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
+        spUnlock.setSelection(idx)
+        suppressSpinnerBriefly()
+    }
+
+    /** Spinner selection callbacks fire asynchronously (next layout pass) —
+     *  stay suppressed long enough to swallow that echo. */
+    private fun suppressSpinnerBriefly() {
+        suppressSpinner = true
+        uiHandler.postDelayed({ suppressSpinner = false }, 300)
     }
 
     // ================= PIN gate =================
@@ -268,7 +342,8 @@ class MainActivity : AppCompatActivity() {
     // ================= actions =================
 
     private fun save() {
-        val mb = etLimit.text.toString().trim().toDoubleOrNull() ?: 0.0
+        // accept Persian / Arabic-Indic digits from fa keyboards
+        val mb = normalizeDigits(etLimit.text.toString()).trim().toDoubleOrNull() ?: 0.0
         if (mb <= 0) { toast(if (fa) "عدد معتبر بده" else "Enter a limit in MB"); return }
         Prefs.setLimitBytes(this, (mb * 1024.0 * 1024.0).roundToLong())
         Prefs.setMonthlyReset(this, cbMonthly.isChecked)
@@ -287,17 +362,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun beginEnable() {
         if (!Prefs.pinSet(this)) {
-            swMonitor.isChecked = false
+            setMonitorSwitch(false)
             toast(if (fa) "اول رمز بذار" else "First set a PIN")
             askNewPinDouble(if (fa) "ساخت رمز" else "Create PIN"); return
         }
         if (!DataStats.hasUsageAccess(this)) {
-            swMonitor.isChecked = false
+            setMonitorSwitch(false)
             toast(if (fa) "Usage access لازم است" else "Grant 'Usage access'")
             DataStats.openUsageAccessScreen(this); return
         }
         if (Prefs.limitBytes(this) <= 0) {
-            swMonitor.isChecked = false
+            setMonitorSwitch(false)
             toast(if (fa) "اول حد بذار" else "Set a limit first"); return
         }
         if (!OwnerEnforcer.isDeviceOwner(this)) {
@@ -309,6 +384,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun completeEnable() {
         Prefs.setMonitoring(this, true)
+        OwnerEnforcer.lockdown(this)   // FIX: wire device-owner hardening (no-op otherwise)
         askIgnoreBatteryOptimization()
         ContextCompat.startForegroundService(this,
             Intent(this, WatchdogService::class.java))
@@ -333,18 +409,18 @@ class MainActivity : AppCompatActivity() {
             Prefs.setGraceUntil(this, 0L)
             Logger.d(this, "grace cancelled by user -> re-arm immediately")
             immediateReevaluate()
-            toast(if (fa) tr(T.lockNow) else tr(T.lockNow))
+            toast(tr(T.lockNow))
             refreshUi(); return
         }
         guarded(tr(T.unlock)) {
-            WatchdogService.unlatch(this)
-            DataStats.resetBaseline(this)
-            LiveCounter.resetToZero()
+            // FIX: keep the latch and do NOT reset the counter — the grace window
+            // merely suspends enforcement, so the lock re-arms the moment it
+            // expires (or when the user cancels it with "lock again now").
             val mins = Prefs.unlockMinutes(this)
             val until = if (mins <= 0) endOfPeriod(this)
             else System.currentTimeMillis() + mins * 60_000L
             Prefs.setGraceUntil(this, until)
-            Logger.d(this, "UNLOCK: grace ${mins}min (0=period)")
+            Logger.d(this, "UNLOCK: grace ${mins}min (0=period), latch kept")
             immediateReevaluate()
             toast(tr(T.unlockedMsg))
             refreshUi()
@@ -482,25 +558,37 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val checklist = buildString {
-            append("\n")
-            append(tr(T.checklist)).append("\n")
-            append(mark(Prefs.pinSet(this@MainActivity))).append(tr(T.pinLbl)).append("\n")
-            append(mark(DataStats.hasUsageAccess(this@MainActivity)))
-                .append(tr(T.usageAccLbl)).append("\n")
-            append(mark(OwnerEnforcer.isDeviceOwner(this@MainActivity)))
-                .append(tr(T.ownerLbl)).append("\n")
-            append(mark(Prefs.monitoring(this@MainActivity)))
-                .append(tr(T.enforceLbl))
-        }
+        // binder-heavy checks (usage access / device owner) -> refresh every ~5 ticks
+        uiTickCount++
+        if (cachedChecklist.isEmpty() || uiTickCount % 5 == 1) cachedChecklist = buildChecklist()
 
-        tvStatus.text = checklist + "\n" + statusLine
+        tvStatus.text = cachedChecklist + "\n" + statusLine
+    }
+
+    private fun buildChecklist(): String = buildString {
+        append("\n")
+        append(tr(T.checklist)).append("\n")
+        append(mark(Prefs.pinSet(this@MainActivity))).append(tr(T.pinLbl)).append("\n")
+        append(mark(DataStats.hasUsageAccess(this@MainActivity)))
+            .append(tr(T.usageAccLbl)).append("\n")
+        append(mark(OwnerEnforcer.isDeviceOwner(this@MainActivity)))
+            .append(tr(T.ownerLbl)).append("\n")
+        append(mark(Prefs.monitoring(this@MainActivity)))
+            .append(tr(T.enforceLbl))
     }
 
     private fun pct(used: Long, limit: Long): Int =
         if (limit <= 0) 0 else ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
 
     private fun mark(ok: Boolean) = if (ok) "☑ " else "☐ "
+
+    private fun normalizeDigits(s: String): String = buildString {
+        for (ch in s) append(when (ch) {
+            in '۰'..'۹' -> '0' + (ch - '۰')   // Persian digits
+            in '٠'..'٩' -> '0' + (ch - '٠')   // Arabic-Indic digits
+            else -> ch
+        })
+    }
 
     private fun humanize(b: Long) =
         if (b >= 1073741824) String.format(java.util.Locale.US, "%.2f GB", b / 1073741824.0)

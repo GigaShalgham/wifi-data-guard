@@ -46,6 +46,7 @@ class WatchdogService : Service() {
     private lateinit var handler: Handler
     private val tick = Runnable { cycle() }
     private var lastPeriod = 0L
+    private var lastNotifLine: String? = null
 
     private val wifiGuard = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -72,7 +73,7 @@ class WatchdogService : Service() {
                 NotificationManager.IMPORTANCE_HIGH))
         ContextCompat.registerReceiver(this, wifiGuard,
             IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION),
-            ContextCompat.RECEIVER_EXPORTED)
+            ContextCompat.RECEIVER_NOT_EXPORTED)
 
         lastPeriod = Prefs.currentPeriodStart(this)
         latched = restoreLatched(this)
@@ -104,8 +105,6 @@ class WatchdogService : Service() {
         LiveCounter.poll(wifiActive())
 
         val limit = Prefs.limitBytes(this)
-        val used = LiveCounter.currentBytes()
-        val grace = System.currentTimeMillis() < Prefs.graceUntil(this)
 
         // period rollover (midnight / month) -> fresh start AND clear grace
         val nowPeriod = Prefs.currentPeriodStart(this)
@@ -114,9 +113,18 @@ class WatchdogService : Service() {
             latched = false
             persistLatched(this, false)
             Prefs.setGraceUntil(this, 0L)          // <<< FIX: kill "period-end" grace
-            LiveCounter.seedWith(DataStats.effectiveUsage(this, nowPeriod).coerceAtLeast(0))
-            Logger.d(this, "new period -> latch + grace reset")
+            // FIX: force-reset the counter; seedWith() never lowers a value, so
+            // yesterday's usage survived the rollover and re-latched instantly
+            val fresh = DataStats.effectiveUsage(this, nowPeriod)
+            if (fresh >= 0) LiveCounter.resetTo(fresh)
+            else Logger.d(this, "rollover: usage stats unavailable, keeping live counter")
+            Logger.d(this, "new period -> latch + grace + counter reset")
         }
+
+        // FIX: read AFTER the rollover block, otherwise a fresh period is judged
+        // against the previous period's stale usage
+        val used = LiveCounter.currentBytes()
+        val grace = System.currentTimeMillis() < Prefs.graceUntil(this)
 
         if (!latched && !grace && limit > 0 && used >= limit) {
             latched = true
@@ -143,33 +151,45 @@ class WatchdogService : Service() {
             if (Prefs.hardMode(this)) {
                 if (!BlockerVpnService.running) BlockerVpnService.start(this)
             } else {
-                OwnerEnforcer.trySilentWifiOff(this)
+                // FIX: soft lock — try to turn Wi-Fi off; on Android 10+ that only
+                // works for device owners. Fall back to the VPN blocker when it
+                // fails, otherwise the "lock" is purely cosmetic.
+                val wifiOn = getSystemService(WifiManager::class.java)?.isWifiEnabled == true
+                if (wifiOn && !OwnerEnforcer.trySilentWifiOff(this)
+                    && !BlockerVpnService.running) {
+                    BlockerVpnService.start(this)
+                    Logger.d(this, "soft lock unavailable -> VPN fallback")
+                }
             }
         } else {
             if (BlockerVpnService.running) BlockerVpnService.release(this)
+            if (latched && grace) OwnerEnforcer.trySilentWifiOn(this)
         }
 
-        getSystemService(NotificationManager::class.java).notify(1, notifLow(statusLine()))
+        val line = statusLine()
+        if (line != lastNotifLine) {              // throttle: update only on change
+            lastNotifLine = line
+            getSystemService(NotificationManager::class.java).notify(1, notifLow(line))
+        }
         handler.postDelayed(tick, 1_000L)
     }
 
     private fun statusLine(): String {
+        val fa = Prefs.lang(this) == "fa"
         val limit = Prefs.limitBytes(this)
-        if (limit <= 0) return "No limit set"
+        if (limit <= 0) return if (fa) "حدی تعیین نشده" else "No limit set"
         val used = LiveCounter.currentBytes()
         val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
+        val minsLeft = graceLeft / 60 + 1
         return when {
-            graceLeft > 0 -> "Grace: re-arms in ${fmt(graceLeft)}"
-            latched -> "LIMIT REACHED (${humanize(used)} used)"
+            graceLeft > 0 -> if (fa) "مهلت آزاد: قفل مجدد تا ~$minsLeft دقیقه"
+                             else "Grace: re-arms in ~$minsLeft min"
+            latched -> if (fa) "به حد رسید (${humanize(used)} مصرف)"
+                       else "LIMIT REACHED (${humanize(used)} used)"
             else -> "${humanize(used)} / ${humanize(limit)} (${
                 ((used * 100.0 / limit).toInt()).coerceIn(0, 100)}%)"
         }
     }
-
-    private fun fmt(sec: Long): String = if (sec >= 3600)
-        String.format(Locale.US, "%d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60)
-    else
-        String.format(Locale.US, "%d:%02d", sec / 60, sec % 60)
 
     private fun humanize(b: Long) =
         if (b >= 1073741824) String.format(Locale.US, "%.2f GB", b / 1073741824.0)
@@ -186,6 +206,7 @@ class WatchdogService : Service() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     override fun onDestroy() {
+        handler.removeCallbacks(tick)
         try { unregisterReceiver(wifiGuard) } catch (_: Throwable) {}
         super.onDestroy()
     }
