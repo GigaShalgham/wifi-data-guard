@@ -85,4 +85,36 @@ object Prefs {
     // unlock duration in minutes (0 = until end of period)
     fun unlockMinutes(c: Context): Int = sp(c).getInt("unlock_minutes", 5)
     fun setUnlockMinutes(c: Context, v: Int) = sp(c).edit().putInt("unlock_minutes", v).apply()
+
+    // ---------- cloud (Phase 2) ----------
+
+    fun cloudToken(c: Context): String = sp(c).getString("cloud_token", "") ?: ""
+    fun setCloudToken(c: Context, v: String) = sp(c).edit().putString("cloud_token", v).apply()
+
+    fun cloudDeviceId(c: Context): Int = sp(c).getInt("cloud_device_id", 0)
+    fun setCloudDeviceId(c: Context, v: Int) = sp(c).edit().putInt("cloud_device_id", v).apply()
+
+    fun cloudName(c: Context): String = sp(c).getString("cloud_name", "") ?: ""
+    fun setCloudName(c: Context, v: String) = sp(c).edit().putString("cloud_name", v).apply()
+
+    fun cloudLastSync(c: Context): Long = sp(c).getLong("cloud_last_sync", 0L)
+    fun setCloudLastSync(c: Context, v: Long) = sp(c).edit().putLong("cloud_last_sync", v).apply()
+
+    fun cloudServerTime(c: Context): Long = sp(c).getLong("cloud_server_time", 0L)
+    fun setCloudServerTime(c: Context, v: Long) = sp(c).edit().putLong("cloud_server_time", v).apply()
+
+    // last cloud config we applied (lets local PIN-gated tweaks survive
+    // until the parent actually pushes something new)
+    fun cloudApplied(c: Context): String = sp(c).getString("cloud_applied", "{}") ?: "{}"
+    fun setCloudApplied(c: Context, v: String) = sp(c).edit().putString("cloud_applied", v).apply()
+
+    // why the latch is active: "" | "limit" | "cloud" | "offline" | "clock"
+    fun latchReason(c: Context): String = sp(c).getString("latch_reason", "") ?: ""
+    fun setLatchReason(c: Context, v: String) = sp(c).edit().putString("latch_reason", v).apply()
+
+    fun offlineTolMin(c: Context): Int = sp(c).getInt("offline_tol_min", 10)
+    fun setOfflineTolMin(c: Context, v: Int) = sp(c).edit().putInt("offline_tol_min", v).apply()
+
+    fun pollIntervalSec(c: Context): Int = sp(c).getInt("poll_interval_sec", 30)
+    fun setPollIntervalSec(c: Context, v: Int) = sp(c).edit().putInt("poll_interval_sec", v).apply()
 }

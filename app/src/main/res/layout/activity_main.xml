@@ -247,6 +247,15 @@
                 android:textAllCaps="false"
                 android:text="Device-owner guide (adb)"/>
 
+            <Button
+                android:id="@+id/btnCloud"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#3A4A78"
+                android:textColor="#E8ECF8"
+                android:textAllCaps="false"
+                android:text="☁ Cloud pairing"/>
+
             <Switch
                 android:id="@+id/swMonitor"
                 android:layout_width="match_parent"

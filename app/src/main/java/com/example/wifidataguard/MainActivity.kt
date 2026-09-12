@@ -14,6 +14,8 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.Html
+import android.text.InputFilter
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.AdapterView
@@ -21,6 +23,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.Switch
@@ -151,6 +154,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPin).setOnClickListener    { pinManageFlow() }
         findViewById<Button>(R.id.btnLogs).setOnClickListener   { showLogs() }
         findViewById<Button>(R.id.btnOwner).setOnClickListener  { showOwnerGuide() }
+        findViewById<Button>(R.id.btnCloud).setOnClickListener  { showCloudDialog() }
 
         swMonitor.setOnCheckedChangeListener { _, checked ->
             if (suppressSw) return@setOnCheckedChangeListener
@@ -189,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         val mapPin     = mapOf("en" to "Set / change PIN", "fa" to "تنظیم رمز")
         val mapLogs    = mapOf("en" to "View logs", "fa" to "مشاهده لاگ")
         val mapOwner   = mapOf("en" to "Device-owner guide (adb)", "fa" to "راهنمای Device Owner")
+        val mapCloud   = mapOf("en" to "☁ Cloud pairing", "fa" to "☁ اتصال به ابر والد")
         val mapMonthly = mapOf("en" to "Monthly reset", "fa" to "ریست ماهانه")
         val mapHard    = mapOf("en" to "Hard mode (VPN blocks ALL internet)",
             "fa" to "حالت سخت (قطع کل اینترنت با VPN)")
@@ -209,6 +214,7 @@ class MainActivity : AppCompatActivity() {
         val usageAccLbl= mapOf("en" to "Usage access", "fa" to "Usage access")
         val ownerLbl   = mapOf("en" to "Device owner", "fa" to "Device Owner")
         val enforceLbl = mapOf("en" to "Enforce ON", "fa" to "نظارت روشن")
+        val cloudLbl   = mapOf("en" to "Cloud linked", "fa" to "متصل به ابر")
     }
 
     private fun applyTexts() {
@@ -218,6 +224,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnPin).text    = tr(T.mapPin)
         findViewById<Button>(R.id.btnLogs).text   = tr(T.mapLogs)
         findViewById<Button>(R.id.btnOwner).text  = tr(T.mapOwner)
+        findViewById<Button>(R.id.btnCloud).text  = tr(T.mapCloud)
         findViewById<Button>(R.id.btnLang).text   = if (fa) "🌐 EN" else "🌐 فارسی"
         cbMonthly.text = tr(T.mapMonthly)
         cbHard.text    = tr(T.mapHard)
@@ -484,6 +491,86 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("OK", null).show()
     }
 
+    // ================= cloud pairing =================
+
+    private fun showCloudDialog() {
+        val pad = (18 * resources.displayMetrics.density).toInt()
+        if (CloudLink.paired(this)) {
+            val mins = (System.currentTimeMillis() - Prefs.cloudLastSync(this)) / 60000
+            val status = if (fa)
+                "✅ متصل به ابر\nنام: ${Prefs.cloudName(this)}\n" +
+                "آخرین همگام‌سازی: " + (if (mins < 1) "همین حالا" else "$mins دقیقه پیش") + "\n\n" +
+                "والد می‌تواند از داشبورد وب این دستگاه را قفل/باز کند و\nحد مصرف و تنظیمات را تغییر دهد."
+            else
+                "✅ Linked to the parent dashboard\nName: ${Prefs.cloudName(this)}\n" +
+                "Last sync: " + (if (mins < 1) "just now" else "$mins min ago") + "\n\n" +
+                "The parent can lock/unlock this device and change its\nlimit and settings from the web dashboard."
+            val tv = TextView(this).apply { text = status; setPadding(pad, pad, pad, pad) }
+            AlertDialog.Builder(this)
+                .setTitle(if (fa) "اتصال ابری" else "Cloud pairing")
+                .setView(tv)
+                .setPositiveButton(if (fa) "بستن" else "Close", null)
+                .setNegativeButton(if (fa) "قطع اتصال" else "Unpair") { _, _ ->
+                    guarded(if (fa) "قطع اتصال ابری" else "Unpair from cloud") {
+                        CloudLink.unpair(this)
+                        toast(if (fa) "اتصال ابری قطع شد — حالت محلی" else "Cloud unlinked — local-only mode")
+                        refreshUi()
+                    }
+                }
+                .show()
+            return
+        }
+
+        // --- not paired: pairing form ---
+        val wrap = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; setPadding(pad, pad / 2, pad, 0)
+        }
+        val hintTv = TextView(this).apply {
+            text = if (fa)
+                "در داشبورد والد (مرورگر) دکمه‌ی «Generate pairing code» را بزن و کد ۶ رقمی را اینجا وارد کن."
+            else
+                "In the parent dashboard (browser) press 'Generate pairing code', then enter the 6-digit code here."
+            textSize = 13f; setPadding(0, 0, 0, pad / 2)
+        }
+        val etCode = EditText(this).apply {
+            setHint(if (fa) "کد ۶ رقمی" else "6-digit code")
+            inputType = InputType.TYPE_CLASS_NUMBER
+            filters = arrayOf(InputFilter.LengthFilter(6))
+        }
+        val etName = EditText(this).apply {
+            setHint(if (fa) "نام دستگاه" else "Device name")
+            setText(Build.MODEL)
+        }
+        wrap.addView(hintTv); wrap.addView(etCode); wrap.addView(etName)
+
+        fun tryPair(dlg: AlertDialog) {
+            val code = normalizeDigits(etCode.text.toString()).trim()
+            val name = etName.text.toString().trim().ifEmpty { Build.MODEL }
+            if (!Regex("^\\d{6}$").matches(code)) {
+                toast(if (fa) "کد باید ۶ رقم باشد" else "Code must be 6 digits"); return
+            }
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = false
+            CloudLink.pair(this, code, name) { ok, msg ->
+                if (ok) {
+                    toast(if (fa) "☁ متصل شد! والد الان می‌تواند کنترل کند" else "☁ Linked! The parent can control this device now")
+                    refreshUi()
+                } else {
+                    toast((if (fa) "خطا: " else "Error: ") + msg)
+                    dlg.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = true
+                }
+            }
+        }
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(if (fa) "اتصال ابری" else "Cloud pairing")
+            .setView(wrap)
+            .setPositiveButton(if (fa) "اتصال" else "Pair", null)
+            .setNegativeButton(if (fa) "انصراف" else "Cancel", null)
+            .show()
+        // override so the dialog stays open while pairing runs
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { tryPair(dlg) }
+    }
+
     private fun showLogs() {
         val text = Logger.readAll(this)
         if (text.isBlank()) { toast(if (fa) "لاگ خالی است" else "Log empty"); return }
@@ -560,7 +647,11 @@ class MainActivity : AppCompatActivity() {
 
         // binder-heavy checks (usage access / device owner) -> refresh every ~5 ticks
         uiTickCount++
-        if (cachedChecklist.isEmpty() || uiTickCount % 5 == 1) cachedChecklist = buildChecklist()
+        if (uiTickCount % 5 == 1) {
+            cachedChecklist = buildChecklist()
+            // keep the hard-mode checkbox in sync with cloud-pushed config
+            setHardChecked(Prefs.hardMode(this))
+        }
 
         tvStatus.text = cachedChecklist + "\n" + statusLine
     }
@@ -574,7 +665,8 @@ class MainActivity : AppCompatActivity() {
         append(mark(OwnerEnforcer.isDeviceOwner(this@MainActivity)))
             .append(tr(T.ownerLbl)).append("\n")
         append(mark(Prefs.monitoring(this@MainActivity)))
-            .append(tr(T.enforceLbl))
+            .append(tr(T.enforceLbl)).append("\n")
+        append(mark(CloudLink.paired(this@MainActivity))).append(tr(T.cloudLbl))
     }
 
     private fun pct(used: Long, limit: Long): Int =

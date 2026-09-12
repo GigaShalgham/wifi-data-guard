@@ -11,8 +11,9 @@ exhausted** — for example, a 750 MB daily cap. It keeps counting even after re
 re-arms itself automatically after every unlock window, and all security-sensitive
 settings are protected by a PIN that only the parent knows.
 
-It is deliberately lightweight: no accounts, no cloud, no analytics — everything runs
-locally on the device.
+It is deliberately lightweight: no accounts, no analytics, and it works fully
+offline. New in v1.3, the app can *optionally* pair with the parent's cloud
+dashboard for remote control — leaving the app unpaired changes nothing.
 
 ## Table of contents
 
@@ -23,6 +24,7 @@ locally on the device.
 - [Everyday use](#everyday-use)
 - [Lock modes](#lock-modes)
 - [Security model](#security-model)
+- [Cloud parent dashboard (optional)](#cloud-parent-dashboard-optional)
 - [Known limitations](#known-limitations)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
@@ -57,6 +59,14 @@ locally on the device.
 - Bilingual UI: English and Persian (فارسی) with full RTL support.
 - Status notification with live usage, grace countdown and lock state.
 - On-device rolling log for diagnosing what the guard did and when.
+
+**Cloud (optional, v1.3)**
+- Pair the device with the parent dashboard using a 6-digit code.
+- Parents lock/unlock the device and change limits remotely.
+- Usage reports reach the dashboard every ~30 seconds.
+- **Fail-closed:** if the server is unreachable past the tolerance window
+  (default 10 minutes), the guard locks by itself.
+- Clock-tamper defense: rolling the clock back trips the lock.
 
 ## How it works
 
@@ -151,12 +161,47 @@ Requirements:
 - **Device owner** — when provisioned, user restrictions (e.g. no Wi-Fi config
   changes) are applied while the guard is on (`lockdown()`/`relax()`).
 
+## Cloud parent dashboard (optional)
+
+v1.3 adds **CloudLink**, an opt-in bridge to the Wi-Fi Data Guard cloud — a
+Cloudflare Worker with a D1 database serving a bilingual parent dashboard at
+`https://wifi-data-guard.gigaspaceturnip.workers.dev`. The feature is dormant
+until the parent pairs the device; an unpaired app behaves exactly like v1.2.
+
+**Pairing.** On the dashboard the parent creates a device entry and gets a
+6-digit code valid for a short window. On the phone: ☁ button → enter the code →
+the device exchanges it for a long-lived token (64-hex) stored only in private
+preferences. From then on the watchdog thread polls the server roughly every
+30 seconds (with jitter) and applies whatever the parent commands.
+
+**Remote commands.** `lock` (optionally with a reason shown on the device),
+`unlock` (minutes), and `config` (limit, period, hard mode, unlock duration,
+offline tolerance, poll interval). Cloud values are authoritative when they
+change; local tweaks keep working in between. Remote locks survive the daily
+rollover, and revoking the device from the dashboard returns the phone to
+local-only mode on the next poll.
+
+**Fail-closed, not fail-open.** The whole design assumes the child might pull
+the plug on connectivity. If the device cannot reach the server for longer than
+`offline_tolerance_min`, the guard latches the lock by itself. Likewise, the
+server returns its own clock on every response; if the device clock is rolled
+back relative to it, the guard latches too. Unpairing on the device requires
+the parent PIN.
+
+**Privacy.** The device sends usage numbers (used/limit bytes), lock/grace
+state, battery percentage, app version and the device name chosen during
+pairing — nothing else. No browsing history, no location, no packet contents.
+Tokens are never logged and never leave private storage.
+
 ## Known limitations
 
 Honest disclosure for a parental-control tool:
 
-- System clock manipulation backwards can stretch a grace window; a period jump
-  forward triggers an early rollover.
+- System clock manipulation backwards can stretch a grace window (mitigated in
+  v1.3 *while cloud-paired*, via the server-time check); a period jump forward
+  triggers an early rollover.
+- Cloud-paired devices need periodic connectivity; after the offline tolerance
+  window the guard locks by design (that is the fail-closed trade-off).
 - If another VPN is already connected, Android will not hand the tunnel to the
   blocker until that VPN disconnects.
 - Android Settings → "clear app data" wipes the PIN and the latch (the device-owner
@@ -206,6 +251,7 @@ app/src/main/java/com/example/wifidataguard/
 ├── LiveCounter.kt       # TrafficStats delta meter (1 s cadence)
 ├── DataStats.kt         # NetworkStatsManager authoritative usage source
 ├── Prefs.kt             # Persistent state: limits, latch, PIN hash
+├── CloudLink.kt         # Optional cloud bridge: pair, poll, ack, fail-closed
 └── Logger.kt            # Rolling on-device log (guard_log.txt)
 ```
 
@@ -234,6 +280,7 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3) | CloudLink: optional cloud pairing, remote lock/unlock/config, ~30 s usage reports, fail-closed offline lock, clock-tamper defense, PIN-gated unpair |
 | [v1.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.2) | Ultra-debug pass: unlock re-arms, true rollover reset, soft-lock VPN fallback, PIN-gated hard mode / unlock duration, backup hardening, first signed release build |
 | [v1.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.1) | Unlock timer, rollover reset, block banner |
 | [v1.0](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.0) | Initial release: live counter, hard/soft lock, PIN, bilingual UI |
@@ -245,6 +292,7 @@ is excluded from backups.
 ۳. کلید «محافظ» را روشن کنید — از این لحظه مصرف وای‌فای لحظه‌ای شمرده می‌شود و با رسیدن به حد، اینترنت قفل می‌شود.
 ۴. برای باز کردن موقت، رمز را وارد کنید؛ پس از پایان مهلت، قفل خودکار دوباره فعال می‌شود.
 ۵. برای قفل نرم (خاموش کردن خودکار وای‌فای) یک‌بار Device Owner را با adb از روی کامپیوتر فعال کنید؛ در غیر این صورت قفل سخت (VPN) خودکار استفاده می‌شود.
+۶. (اختیاری، نسخه ۱.۳) با دکمه ☁ و کد ۶ رقمی داشبورد والدین، گوشی را به داشبورد وصل کنید تا قفل/بازکردن و تغییر سهمیه از راه دور ممکن شود؛ اگر اینترنت قطع طولانی شود، قفل خودکار فعال می‌شود (fail-closed).
 
 **نکته ارتقا:** اگر نسخه ۱.۰/۱.۱ را نصب دارید، اول آن را حذف کنید (امضای نسخه‌های جدید متفاوت است).
 
