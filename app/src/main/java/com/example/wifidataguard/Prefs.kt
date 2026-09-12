@@ -61,7 +61,7 @@ object Prefs {
         if (ok) sp(c).edit().putInt("fail_count", 0).apply()
         else sp(c).edit()
             .putInt("fail_count", sp(c).getInt("fail_count", 0) + 1)
-            .putLong("last_fail", System.currentTimeMillis())
+            .putLong("last_fail", AppClock.now())
             .apply()
         return ok
     }
@@ -69,7 +69,7 @@ object Prefs {
     fun pinCooldownLeftMs(c: Context): Long {
         if (sp(c).getInt("fail_count", 0) < 5) return 0L
         val left = 5 * 60 * 1000L -
-                (System.currentTimeMillis() - sp(c).getLong("last_fail", 0L))
+                (AppClock.now() - sp(c).getLong("last_fail", 0L))
         if (left > 0) return left
         sp(c).edit().putInt("fail_count", 0).apply()
         return 0L
@@ -77,6 +77,7 @@ object Prefs {
 
     fun currentPeriodStart(c: Context): Long {
         val cal = Calendar.getInstance()
+        cal.timeInMillis = AppClock.now()
         cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
         cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
         if (monthlyReset(c)) cal.set(Calendar.DAY_OF_MONTH, 1)

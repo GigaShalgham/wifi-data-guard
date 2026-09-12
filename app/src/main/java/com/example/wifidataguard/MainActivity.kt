@@ -156,6 +156,11 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnOwner).setOnClickListener  { showOwnerGuide() }
         findViewById<Button>(R.id.btnCloud).setOnClickListener  { showCloudDialog() }
 
+        // 🧪 test panel — only exists in the .test build, hidden otherwise
+        val btnTest = findViewById<Button>(R.id.btnTest)
+        if (TestMode.active) btnTest.setOnClickListener { showTestPanel() }
+        else btnTest.visibility = View.GONE
+
         swMonitor.setOnCheckedChangeListener { _, checked ->
             if (suppressSw) return@setOnCheckedChangeListener
             if (checked) beginEnable()
@@ -410,7 +415,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun unlockFlow() {
-        val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
+        val graceLeft = (Prefs.graceUntil(this) - AppClock.now()) / 1000
         if (graceLeft > 0) {
             // clicking during grace = lock again NOW
             Prefs.setGraceUntil(this, 0L)
@@ -425,7 +430,7 @@ class MainActivity : AppCompatActivity() {
             // expires (or when the user cancels it with "lock again now").
             val mins = Prefs.unlockMinutes(this)
             val until = if (mins <= 0) endOfPeriod(this)
-            else System.currentTimeMillis() + mins * 60_000L
+            else AppClock.now() + mins * 60_000L
             Prefs.setGraceUntil(this, until)
             Logger.d(this, "UNLOCK: grace ${mins}min (0=period), latch kept")
             immediateReevaluate()
@@ -435,6 +440,7 @@ class MainActivity : AppCompatActivity() {
     }
     private fun endOfPeriod(c: android.content.Context): Long {
         val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = AppClock.now()
         cal.set(java.util.Calendar.HOUR_OF_DAY, 0)
         cal.set(java.util.Calendar.MINUTE, 0)
         cal.set(java.util.Calendar.SECOND, 0)
@@ -595,6 +601,135 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ================= test panel (.test builds only) =================
+
+    private fun fmtTs(ms: Long): String =
+        java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date(ms))
+
+    private fun showTestPanel() {
+        val v = LayoutInflater.from(this).inflate(R.layout.dialog_test, null)
+        val tvState = v.findViewById<TextView>(R.id.tvTestState)
+        val btnSim = v.findViewById<Button>(R.id.btnSimOffline)
+
+        fun testLog(msg: String) = Logger.d(this, "TEST $msg")
+
+        fun state() {
+            val lim = Prefs.limitBytes(this)
+            val used = LiveCounter.currentBytes()
+            val last = Prefs.cloudLastSync(this)
+            val realNow = System.currentTimeMillis()
+            tvState.text = buildString {
+                append("virtual : ").append(fmtTs(AppClock.now())).append('\n')
+                append("real    : ").append(fmtTs(realNow)).append('\n')
+                append("scale   : ").append(
+                    String.format(java.util.Locale.US, "%.0fx", AppClock.scale)).append('\n')
+                append("paired  : ").append(CloudLink.paired(this@MainActivity)).append('\n')
+                append("syncAge : ").append(if (last <= 0) "-"
+                    else "${(realNow - last) / 1000}s (real)").append('\n')
+                append("tolLeft : ").append(if (last <= 0) "-"
+                    else "${((Prefs.offlineTolMin(this@MainActivity) * 60_000L -
+                        (realNow - last)) / 1000).coerceAtLeast(0)}s").append('\n')
+                append("pollIn  : ").append("${CloudLink.nextPollInMs() / 1000}s").append('\n')
+                append("simOff  : ").append(TestMode.simOffline).append('\n')
+                append("latched : ").append(WatchdogService.latched).append(" (")
+                    .append(Prefs.latchReason(this@MainActivity).ifEmpty { "-" }).append(")\n")
+                append("usage   : ").append(humanize(used)).append(" / ")
+                    .append(humanize(lim)).append('\n')
+                append("period  : ").append(if (Prefs.monthlyReset(this@MainActivity))
+                    "monthly" else "daily")
+            }
+            btnSim.text = "Sim offline: ${if (TestMode.simOffline) "ON" else "OFF"}"
+        }
+
+        // ---- time scale ----
+        v.findViewById<Button>(R.id.btnTs1).setOnClickListener {
+            AppClock.setScale(1.0); testLog("time scale -> 1x"); state() }
+        v.findViewById<Button>(R.id.btnTs10).setOnClickListener {
+            AppClock.setScale(10.0); testLog("time scale -> 10x"); state() }
+        v.findViewById<Button>(R.id.btnTs60).setOnClickListener {
+            AppClock.setScale(60.0); testLog("time scale -> 60x"); state() }
+        v.findViewById<Button>(R.id.btnTs600).setOnClickListener {
+            AppClock.setScale(600.0); testLog("time scale -> 600x"); state() }
+        v.findViewById<Button>(R.id.btnTs3600).setOnClickListener {
+            AppClock.setScale(3600.0); testLog("time scale -> 3600x"); state() }
+        v.findViewById<Button>(R.id.btnJumpBack1h).setOnClickListener {
+            AppClock.jump(-3_600_000L); testLog("virtual clock jumped -1h"); state() }
+        v.findViewById<Button>(R.id.btnRollbackServer).setOnClickListener {
+            if (TestMode.rollbackBelowServer(this)) {
+                testLog("clock rolled below server time -> tamper latch expected")
+                toast(if (fa) "ساعت به عقب برگشت — قفل در تیک بعدی"
+                    else "Clock below server — latch on next tick")
+            } else toast(if (fa) "اول به ابر وصل شو" else "Pair to cloud first")
+            state()
+        }
+        v.findViewById<Button>(R.id.btnTsSnap).setOnClickListener {
+            AppClock.snapToReal(); testLog("virtual clock snapped to real, 1x"); state() }
+
+        // ---- usage injection ----
+        v.findViewById<Button>(R.id.btnAdd100).setOnClickListener {
+            TestMode.addUsageMb(100); testLog("usage +100MB"); state(); immediateReevaluate() }
+        v.findViewById<Button>(R.id.btnAdd500).setOnClickListener {
+            TestMode.addUsageMb(500); testLog("usage +500MB"); state(); immediateReevaluate() }
+        v.findViewById<Button>(R.id.btnNearLimit).setOnClickListener {
+            TestMode.setUsagePctOfLimit(this, 99)
+            testLog("usage -> 99% of limit"); state(); immediateReevaluate() }
+        v.findViewById<Button>(R.id.btnUsage0).setOnClickListener {
+            TestMode.usageZero(); testLog("usage -> 0"); state(); immediateReevaluate() }
+
+        // ---- cloud / fail-closed ----
+        v.findViewById<Button>(R.id.btnForcePoll).setOnClickListener {
+            CloudLink.forcePoll(this); testLog("poll forced"); state() }
+        btnSim.setOnClickListener {
+            TestMode.simOffline = !TestMode.simOffline
+            testLog("simulated offline = ${TestMode.simOffline}"); state() }
+        v.findViewById<Button>(R.id.btnBackdate).setOnClickListener {
+            val last = Prefs.cloudLastSync(this)
+            if (last <= 0) { toast(if (fa) "اول به ابر وصل شو" else "Pair to cloud first")
+                return@setOnClickListener }
+            Prefs.setCloudLastSync(this, last - 20 * 60_000L)
+            testLog("last sync backdated -20min -> offline latch expected")
+            toast(if (fa) "sync به ۲۰ دقیقه قبل برگشت — قفل در تیک بعدی"
+                else "Sync backdated 20 min — latch on next tick")
+            state()
+        }
+        v.findViewById<Button>(R.id.btnTol1).setOnClickListener {
+            Prefs.setOfflineTolMin(this, 1)
+            testLog("offline tolerance = 1 min (real)"); state() }
+        v.findViewById<Button>(R.id.btnPoll15).setOnClickListener {
+            Prefs.setPollIntervalSec(this, 15)
+            testLog("poll interval = 15 s (real)"); state() }
+
+        // ---- logs ----
+        v.findViewById<Button>(R.id.btnShareLog).setOnClickListener {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TITLE, "DataGuard test log")
+                putExtra(Intent.EXTRA_TEXT, Logger.readAll(this@MainActivity))
+            }
+            try { startActivity(Intent.createChooser(send, "Share test log")) }
+            catch (_: Exception) {}
+        }
+        v.findViewById<Button>(R.id.btnClearLog).setOnClickListener {
+            Logger.clear(this); testLog("log cleared"); toast(if (fa) "پاک شد" else "Cleared") }
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("🧪 Test panel")
+            .setView(v)
+            .setPositiveButton(if (fa) "بستن" else "Close", null)
+            .show()
+        state()
+        val refresher = object : Runnable {
+            override fun run() {
+                if (!dlg.isShowing) return
+                state()
+                uiHandler.postDelayed(this, 500)
+            }
+        }
+        uiHandler.postDelayed(refresher, 500)
+        dlg.setOnDismissListener { uiHandler.removeCallbacks(refresher) }
+    }
+
     // ================= UI =================
 
     private fun fmt(sec: Long): String =
@@ -603,7 +738,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshUi() {
         val limit = Prefs.limitBytes(this)
         val used = LiveCounter.currentBytes()
-        val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
+        val graceLeft = (Prefs.graceUntil(this) - AppClock.now()) / 1000
 
         // big usage number
         tvUsageBig.text = humanize(used)

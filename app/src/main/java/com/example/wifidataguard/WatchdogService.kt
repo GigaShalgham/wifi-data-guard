@@ -162,7 +162,7 @@ class WatchdogService : Service() {
         // FIX: read AFTER the rollover block, otherwise a fresh period is judged
         // against the previous period's stale usage
         val used = LiveCounter.currentBytes()
-        val grace = System.currentTimeMillis() < Prefs.graceUntil(this)
+        val grace = AppClock.now() < Prefs.graceUntil(this)
 
         if (!latched && !grace && limit > 0 && used >= limit) {
             latched = true
@@ -213,7 +213,7 @@ class WatchdogService : Service() {
         val limit = Prefs.limitBytes(this)
         if (limit <= 0) return if (fa) "حدی تعیین نشده" else "No limit set"
         val used = LiveCounter.currentBytes()
-        val graceLeft = (Prefs.graceUntil(this) - System.currentTimeMillis()) / 1000
+        val graceLeft = (Prefs.graceUntil(this) - AppClock.now()) / 1000
         val minsLeft = graceLeft / 60 + 1
         return when {
             graceLeft > 0 -> if (fa) "مهلت آزاد: قفل مجدد تا ~$minsLeft دقیقه"
@@ -250,7 +250,7 @@ class WatchdogService : Service() {
                     val mins = cmd.optJSONObject("payload")?.optInt("minutes", 15) ?: 15
                     // same semantics as the local PIN unlock: grace window,
                     // latch kept, auto re-arm when it expires
-                    Prefs.setGraceUntil(c, System.currentTimeMillis() + mins * 60_000L)
+                    Prefs.setGraceUntil(c, AppClock.now() + mins * 60_000L)
                     Logger.d(c, "cloud UNLOCK: grace ${mins}min (latch kept)")
                 }
                 "config" -> CloudLink.applyConfig(c, cmd.optJSONObject("payload") ?: JSONObject())

@@ -48,6 +48,21 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
+        // "Unormal" QA build: installs ALONGSIDE the real app (.test package
+        // suffix). Unlocks the virtual clock, usage injection, simulated
+        // offline and the 🧪 test panel — see AppClock / TestMode.
+        // (AGP reserves buildType names starting with "test", hence "qa".)
+        create("qa") {
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
+            isDebuggable = true
+            optimization {
+                enable = false
+            }
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

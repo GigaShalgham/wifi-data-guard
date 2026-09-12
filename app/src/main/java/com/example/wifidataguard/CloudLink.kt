@@ -101,17 +101,32 @@ object CloudLink {
         pool.execute { doPoll(appCtx) }
     }
 
+    /** Test panel: run a poll immediately (bypasses the interval). */
+    fun forcePoll(c: Context) {
+        nextDueAt = 0L
+        pollIfDue(c)
+    }
+
+    /** Test panel: real ms until the next scheduled poll. */
+    fun nextPollInMs(): Long = (nextDueAt - System.currentTimeMillis()).coerceAtLeast(0L)
+
     private fun doPoll(c: Context) {
         val token = Prefs.cloudToken(c)
         if (token.isEmpty()) return
+        if (TestMode.simOffline) {
+            Logger.d(c, "TEST poll skipped: simulated offline")
+            return
+        }
         val acks: List<Int> = synchronized(pendingAcks) { pendingAcks.toList() }
         val body = JSONObject().apply {
             put("report", buildReport(c))
             put("acks", JSONArray(acks))
         }
+        val t0 = System.currentTimeMillis()
         val (status, txt) = try {
             httpPost("$BASE/api/child/poll", token, body.toString())
         } catch (_: Exception) { -1 to "" }
+        val elapsedMs = System.currentTimeMillis() - t0
 
         main.post {
             when {
@@ -126,7 +141,10 @@ object CloudLink {
                         val cmds = res.optJSONArray("commands")
                         if (cmds != null && cmds.length() > 0)
                             commandHandler?.invoke(c, cmds)
-                        val drift = System.currentTimeMillis() - serverTime
+                        if (TestMode.active)
+                            Logger.d(c, "TEST poll ok: HTTP 200 in ${elapsedMs}ms " +
+                                    "acks=${acks.size} cmds=${cmds?.length() ?: 0}")
+                        val drift = AppClock.now() - serverTime
                         if (serverTime > 0 && abs(drift) > 300_000)
                             Logger.d(c, "clock drift vs server: ${drift / 1000}s")
                     } catch (_: Exception) {
@@ -169,7 +187,7 @@ object CloudLink {
     /** True when the local clock was rolled back below the last known server time. */
     fun clockRolledBack(c: Context): Boolean {
         val st = Prefs.cloudServerTime(c)
-        return paired(c) && st > 0L && System.currentTimeMillis() + 120_000L < st
+        return paired(c) && st > 0L && AppClock.now() + 120_000L < st
     }
 
     // ------------------------------------------------------------ commands & config

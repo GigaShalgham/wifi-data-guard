@@ -15,7 +15,7 @@ object Logger {
 
     @Synchronized
     fun d(context: Context, msg: String) {
-        val ts = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())
+        val ts = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date(AppClock.now()))
         val line = "$ts  $msg\n"
         try {
             val f = file(context)

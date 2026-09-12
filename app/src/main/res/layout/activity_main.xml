@@ -256,6 +256,15 @@
                 android:textAllCaps="false"
                 android:text="☁ Cloud pairing"/>
 
+            <Button
+                android:id="@+id/btnTest"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:backgroundTint="#6B4A00"
+                android:textColor="#FFE8C2"
+                android:textAllCaps="false"
+                android:text="🧪 Test panel"/>
+
             <Switch
                 android:id="@+id/swMonitor"
                 android:layout_width="match_parent"

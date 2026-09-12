@@ -233,6 +233,26 @@ keyAlias=...
 keyPassword=...
 ```
 
+**Test build ("time machine").** `./gradlew assembleQa` produces an APK with
+the `.test` package suffix that installs *alongside* the real app and unlocks a
+🧪 **Test panel**:
+
+- a **virtual clock** with 1x–3600x time scale — grace windows, midnight/month
+  rollover and PIN cooldowns can be observed in seconds instead of hours
+  (connectivity deadlines stay on the real clock, so a reachable device never
+  fakes "offline");
+- **usage injection** (+100 MB / +500 MB / 99% of limit / zero) to trip the
+  limit latch instantly;
+- **simulated offline** and a **backdated-sync** button to exercise the
+  fail-closed lock deterministically;
+- **clock-rollback simulation** (below the last server time) to trip the
+  tamper defense;
+- **verbose poll logs** (HTTP status, latency, acks, commands) with in-app
+  viewing and one-tap sharing.
+
+Release builds contain none of this behavior — the virtual clock returns real
+time and the panel is hidden when the package suffix is absent.
+
 Stack: Kotlin (built-in Kotlin support in AGP 9), Gradle 9.5 wrapper, minSdk 26,
 targetSdk 33, compileSdk 37. Mirror-first Maven repositories with official
 `google()`/`mavenCentral()` fallbacks.
