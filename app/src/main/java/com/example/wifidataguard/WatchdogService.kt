@@ -191,8 +191,18 @@ class WatchdogService : Service() {
                 val wifiOn = getSystemService(WifiManager::class.java)?.isWifiEnabled == true
                 if (wifiOn && !OwnerEnforcer.trySilentWifiOff(this)
                     && !BlockerVpnService.running) {
-                    BlockerVpnService.start(this)
+                    BlockerVpnService.start(this, softFallback = true)
                     Logger.d(this, "soft lock unavailable -> VPN fallback")
+                    // v1.3.1: say it out loud — the child/parent must know why a
+                    // "soft" lock is behaving like a full internet cut-off.
+                    val fa2 = Prefs.lang(this) == "fa"
+                    notifyAlert(
+                        if (fa2) "🔒 قفل نرم — کنترل Wi-Fi در دسترس نیست"
+                        else "🔒 Soft lock — no Wi-Fi control",
+                        if (fa2) "بدون امتیاز Device Owner وای‌فای خاموش نمی‌شود؛ " +
+                            "به‌جای آن کل اینترنت قطع شد"
+                        else "Wi-Fi cannot be switched off without device-owner " +
+                            "rights; ALL internet is blocked instead")
                 }
             }
         } else {

@@ -232,7 +232,7 @@ object CloudLink {
             readTimeout = 15_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("User-Agent", "DataGuard-Android/1.3")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.3.1")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
         }
         try {

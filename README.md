@@ -67,6 +67,9 @@ dashboard for remote control — leaving the app unpaired changes nothing.
 - **Fail-closed:** if the server is unreachable past the tolerance window
   (default 10 minutes), the guard locks by itself.
 - Clock-tamper defense: rolling the clock back trips the lock.
+- The lock never wedges itself (v1.3.1): the blocking VPN tunnel excludes
+  the guard app's own traffic, so usage reports and remote **unlock**
+  commands keep flowing even while every other app is blocked.
 
 ## How it works
 
@@ -300,6 +303,7 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3-test2) | Hard-lock control-channel survival (VPN tunnel exempts the guard app: remote unlock + live reports during a lock), honest soft-lock fallback notification |
 | [v1.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3) | CloudLink: optional cloud pairing, remote lock/unlock/config, ~30 s usage reports, fail-closed offline lock, clock-tamper defense, PIN-gated unpair |
 | [v1.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.2) | Ultra-debug pass: unlock re-arms, true rollover reset, soft-lock VPN fallback, PIN-gated hard mode / unlock duration, backup hardening, first signed release build |
 | [v1.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.1) | Unlock timer, rollover reset, block banner |

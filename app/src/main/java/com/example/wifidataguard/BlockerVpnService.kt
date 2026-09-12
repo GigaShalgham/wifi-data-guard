@@ -11,7 +11,16 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import java.io.FileInputStream
 
-/** HARD-MODE internet killer. Crash-proof: never throws, never restart-loops. */
+/** HARD-MODE internet killer. Crash-proof: never throws, never restart-loops.
+ *
+ *  v1.3.1 — CONTROL-CHANNEL SURVIVAL: the tunnel excludes THIS app's own
+ *  traffic (addDisallowedApplication). Before, a hard lock also killed the
+ *  cloud control channel, so a remote lock could never be lifted remotely
+ *  (unlock commands sat undelivered forever) and the dashboard went stale.
+ *  Now every OTHER app stays blocked while the guard app itself keeps its
+ *  poll connection to the worker alive. If establish() refuses the
+ *  self-exemption, we fall back to the old plain full tunnel.
+ */
 class BlockerVpnService : VpnService() {
 
     private var tun: ParcelFileDescriptor? = null
@@ -21,6 +30,8 @@ class BlockerVpnService : VpnService() {
         private const val CH_ID = "lock_notif"
         private const val NOTIF_ID = 77
         const val ACT_RELEASE = "release"
+        const val EXTRA_MODE = "mode"
+        const val MODE_SOFT = "soft"
 
         @Volatile private var lastStartMs = 0L
 
@@ -28,7 +39,10 @@ class BlockerVpnService : VpnService() {
             private set
         @Volatile var lastError: String? = null
 
-        fun start(context: Context) {
+        /** @param softFallback true when the VPN engages as the soft lock's
+         *  fallback (Wi-Fi could not be switched off) — labels the
+         *  notification honestly instead of claiming "hard mode". */
+        fun start(context: Context, softFallback: Boolean = false) {
             val now = System.currentTimeMillis()
             if (now - lastStartMs < 5000) {
                 Logger.d(context, "VPN start suppressed (cooldown)")
@@ -37,7 +51,8 @@ class BlockerVpnService : VpnService() {
             lastStartMs = now
             try {
                 context.startForegroundService(
-                    Intent(context, BlockerVpnService::class.java))
+                    Intent(context, BlockerVpnService::class.java)
+                        .putExtra(EXTRA_MODE, if (softFallback) MODE_SOFT else "hard"))
             } catch (t: Throwable) {
                 Logger.d(context, "start failed: $t")
             }
@@ -65,8 +80,9 @@ class BlockerVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            Logger.d(this, "VPN onStartCommand action=${intent?.action ?: "START"}")
-            startForeground(NOTIF_ID, notif("ALL internet locked (hard mode)."))
+            val soft = intent?.getStringExtra(EXTRA_MODE) == MODE_SOFT
+            Logger.d(this, "VPN onStartCommand action=${intent?.action ?: "START"} soft=$soft")
+            startForeground(NOTIF_ID, notif(soft))
 
             if (intent?.action == ACT_RELEASE) {
                 shutDown()
@@ -82,14 +98,19 @@ class BlockerVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun notif(text: String): Notification {
+    private fun notif(soft: Boolean): Notification {
         val pi = PendingIntent.getActivity(this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return Notification.Builder(this, CH_ID)
             .setSmallIcon(android.R.drawable.stat_notify_error)
-            .setContentTitle("Data guard (hard mode)")
-            .setContentText(text)
+            .setContentTitle(if (soft) "Data guard (soft-lock fallback)"
+                             else "Data guard (hard mode)")
+            .setContentText(
+                if (soft) "Wi-Fi control unavailable - ALL internet blocked " +
+                    "(guard app stays online)."
+                else "ALL internet locked (guard app stays online for " +
+                    "remote unlock).")
             .setContentIntent(pi)
             .setOngoing(true)
             .build()
@@ -108,15 +129,13 @@ class BlockerVpnService : VpnService() {
             stopSelf(); return
         }
 
-        val b = Builder()
-        b.setSession("data-guard").setMtu(1500)
-        b.addAddress("198.18.0.1", 32)
-        b.addRoute("0.0.0.0", 0)
-        try { b.addRoute("::", 0) } catch (_: Exception) {}
-
-        val fd = try { b.establish() } catch (t: Throwable) {
-            lastError = "establish exception: $t"
-            Logger.d(this, "block(): $lastError"); null
+        // 1st attempt: a tunnel that excludes our own package, so CloudLink's
+        // polls (remote unlock / config / usage reports) survive the lock.
+        // 2nd attempt (only if establish refused): plain full tunnel.
+        var fd = establishFd(selfExempt = true)
+        if (fd == null) {
+            Logger.d(this, "establish with self-exemption failed -> plain retry")
+            fd = establishFd(selfExempt = false)
         }
         if (fd == null) {
             if (lastError == null) lastError = "establish returned null"
@@ -126,7 +145,7 @@ class BlockerVpnService : VpnService() {
         }
 
         tun = fd; running = true; lastError = null
-        Logger.d(this, "*** TUNNEL UP - all traffic captured ***")
+        Logger.d(this, "*** TUNNEL UP - traffic captured (self-exempt) ***")
 
         dropper = Thread {
             try {
@@ -141,6 +160,29 @@ class BlockerVpnService : VpnService() {
                 Logger.d(this, "dropper ended -> tunnel down")
             }
         }.also { it.start() }
+    }
+
+    private fun establishFd(selfExempt: Boolean): ParcelFileDescriptor? {
+        val b = Builder()
+        b.setSession("data-guard").setMtu(1500)
+        b.addAddress("198.18.0.1", 32)
+        b.addRoute("0.0.0.0", 0)
+        try { b.addRoute("::", 0) } catch (_: Exception) {}
+        var applied = false
+        if (selfExempt) {
+            try {
+                b.addDisallowedApplication(packageName)
+                applied = true
+            } catch (t: Throwable) {
+                Logger.d(this, "self-exemption unavailable: $t")
+            }
+        }
+        val fd = try { b.establish() } catch (t: Throwable) {
+            lastError = "establish exception: $t"
+            Logger.d(this, "block(): $lastError"); null
+        }
+        if (fd != null) Logger.d(this, "tunnel established (selfExempt=$applied)")
+        return fd
     }
 
     private fun shutDown() {
