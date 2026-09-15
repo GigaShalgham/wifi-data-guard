@@ -178,13 +178,17 @@ class MainActivity : AppCompatActivity() {
 
         applyTexts()
 
-        // entrance-once (spec-007): staggered slide-fade on create; the 1 s tick never replays it
+        // entrance-once (spec-007): staggered slide-fade on create; the 1 s tick never replays it.
+        // v1.3.6 CRITICAL FIX: element type must be pinned to View — Kotlin otherwise infers
+        // Button (from btnUnlock, the only concretely-typed element) and the vararg array
+        // becomes Button[], so storing the LinearLayout cards throws ArrayStoreException
+        // at cold start on every device (the v1.3.5 launch crash).
         glass.entrance(listOf(
-            findViewById(R.id.headerRow),
-            findViewById(R.id.cardHero),
-            findViewById(R.id.cardSettings),
-            btnUnlock,
-            findViewById(R.id.cardTools)))
+            findViewById<View>(R.id.headerRow),
+            findViewById<View>(R.id.cardHero),
+            findViewById<View>(R.id.cardSettings),
+            btnUnlock as View,
+            findViewById<View>(R.id.cardTools)))
     }
 
     override fun onResume() {
@@ -284,14 +288,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun applySpinner(pos: Int) {
         Prefs.setUnlockMinutes(this, unlockOptions[pos])
+        suppressSpinnerBriefly()   // arm BEFORE setSelection: even a synchronous echo cannot re-enter
         spUnlock.setSelection(pos)
-        suppressSpinnerBriefly()
     }
 
     private fun revertSpinner() {
         val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
+        suppressSpinnerBriefly()   // arm BEFORE setSelection — re-entrancy guard (v1.3.6)
         spUnlock.setSelection(idx)
-        suppressSpinnerBriefly()
     }
 
     private fun rebuildSpinnerLabels() {
@@ -300,10 +304,10 @@ class MainActivity : AppCompatActivity() {
             else tr(T.minutesFmt).replace("%d", m.toString())
         }
         val ad = spUnlock.adapter as? ArrayAdapter<String> ?: return
+        suppressSpinnerBriefly()   // arm BEFORE the data change — notifyDataSetChanged re-fires selection
         ad.clear(); ad.addAll(labels); ad.notifyDataSetChanged()
         val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
         spUnlock.setSelection(idx)
-        suppressSpinnerBriefly()
     }
 
     /** Spinner selection callbacks fire asynchronously (next layout pass) —
