@@ -85,6 +85,9 @@ class WatchdogService : Service() {
 
     private lateinit var handler: Handler
     private val tick = Runnable { cycle() }
+    /** spec-003 FR-007: re-poll ~4 s after applying commands so the ack and a
+     *  fresh report reach the dashboard fast (control channel is VPN-exempt). */
+    private val confirmPoll = Runnable { CloudLink.forcePoll(applicationContext) }
     private var lastPeriod = 0L
     private var lastNotifLine: String? = null
 
@@ -289,17 +292,49 @@ class WatchdogService : Service() {
                         if (fa) "والد اینترنت را قفل کرد" else "The parent locked the internet")
                 }
                 "unlock" -> {
-                    val mins = cmd.optJSONObject("payload")?.optInt("minutes", 15) ?: 15
-                    // same semantics as the local PIN unlock: grace window,
-                    // latch kept, auto re-arm when it expires
-                    Prefs.setGraceUntil(c, AppClock.now() + mins * 60_000L)
-                    Logger.d(c, "cloud UNLOCK: grace ${mins}min (latch kept)")
+                    val pl = cmd.optJSONObject("payload")
+                    val mins = pl?.optInt("minutes", 15) ?: 15
+                    val full = pl?.optBoolean("full", false) == true
+                    val reason = Prefs.latchReason(c)
+                    if (full && (reason == "cloud" || reason == "offline")) {
+                        // spec-003 FR-006: REAL unlock — clear the cloud-origin
+                        // latch for good. No grace window, no auto re-arm. The
+                        // data-limit and clock-tamper defenses are untouched
+                        // (different latch reasons, constitution Art. II).
+                        unlatch(c)
+                        Prefs.setGraceUntil(c, 0L)
+                        notifyAlert(
+                            if (fa) "🔓 باز شد از طرف والد" else "🔓 Unlocked by parent",
+                            if (fa) "اینترنت تا قفل بعدی باز می‌ماند"
+                            else "Internet stays open until the next lock")
+                        Logger.d(c, "cloud UNLOCK (full): latch cleared (was $reason)")
+                    } else {
+                        if (full) {
+                            // limit/clock latches must survive a remote command
+                            // (constitution Art. II): degrade honestly to the
+                            // timed window and tell the user why.
+                            notifyAlert(
+                                if (fa) "🔓 بازکردن کامل ممکن نبود" else "🔓 Full unlock not possible",
+                                if (fa) "قفل به دلیل مصرف/ساعت است؛ به‌جایش پنجرهٔ ${mins} دقیقه‌ای داده شد"
+                                else "Lock reason: $reason — a ${mins}-minute window was granted instead")
+                        }
+                        // same semantics as the local PIN unlock: grace window,
+                        // latch kept, auto re-arm when it expires
+                        Prefs.setGraceUntil(c, AppClock.now() + mins * 60_000L)
+                        Logger.d(c, "cloud UNLOCK: grace ${mins}min (latch kept, full=$full reason=$reason)")
+                    }
                 }
                 "config" -> CloudLink.applyConfig(c, cmd.optJSONObject("payload") ?: JSONObject())
             }
             if (id > 0) ackIds.add(id)
         }
-        if (ackIds.isNotEmpty()) CloudLink.ack(ackIds)
+        if (ackIds.isNotEmpty()) {
+            CloudLink.ack(ackIds)
+            // spec-003 FR-007: confirm fast — the ack + fresh report land in
+            // seconds, not on the next full poll interval.
+            handler.removeCallbacks(confirmPoll)
+            handler.postDelayed(confirmPoll, 4_000L)
+        }
     }
 
     private fun notifyAlert(title: String, text: String) {

@@ -31,6 +31,11 @@ var I18N = {
     normal: "ok",
     lockNow: "Lock now",
     unlock15: "Unlock 15m",
+    unlockFull: "Unlock",
+    confirmUnlockFull: "Fully unlock this device? Internet stays open until you lock it again (or its data limit is reached). Device app v1.3.3+ required \u2014 older apps treat this as a 15-minute window.",
+    pendingLock: "Locking\u2026",
+    pendingUnlock: "Unlocking\u2026",
+    waitDevice: "waiting for device (up to ~1 min)",
     settings: "Settings",
     save: "Save",
     saved: "Saved — the device picks it up on its next poll.",
@@ -81,6 +86,11 @@ var I18N = {
     normal: "سالم",
     lockNow: "قفل فرمان",
     unlock15: "باز ۱۵ دقیقه‌ای",
+    unlockFull: "باز کردن قفل",
+    confirmUnlockFull: "این دستگاه کاملاً باز شود؟ اینترنت تا قفل بعدی (یا رسیدن به حد مصرف) باز می‌ماند. نیازمند اپ نسخهٔ ۱.۳.۳+ — نسخه‌های قدیمی‌تر آن را پنجرهٔ ۱۵ دقیقه‌ای می‌بینند.",
+    pendingLock: "در حال قفل…",
+    pendingUnlock: "در حال باز کردن…",
+    waitDevice: "در انتظار دستگاه (تا ~۱ دقیقه)",
     settings: "تنظیمات",
     save: "ذخیره",
     saved: "ذخیره شد — در poll بعدی اعمال می‌شود.",
@@ -201,11 +211,35 @@ function renderLogin(root){
 var me = null;
 var openSettings = {};
 var pairTimer = null;
+// spec-003: optimistic command state per device {type, timed, until}
+var pend = {};
+var PEND_TTL_MS = 90 * 1000;
+
+function pendFor(d){
+  var p = pend[d.id];
+  if (!p) return null;
+  if (Date.now() > p.until) { delete pend[d.id]; return null; }
+  return p;
+}
+function pendConfirmed(p, rep){
+  if (!rep) return false;
+  if (p.type === "lock") return !!rep.latched;
+  if (p.timed) return !!(rep.grace_until && rep.grace_until > Date.now());
+  return !rep.latched;
+}
+function clearConfirmedPends(){
+  var devs = (me && me.devices) || [];
+  for (var i = 0; i < devs.length; i++) {
+    var p = pend[devs[i].id];
+    if (p && pendConfirmed(p, devs[i].report)) delete pend[devs[i].id];
+  }
+}
 
 function refresh(rerender){
   api("/api/me").then(function(res){
     if (!res.ok) { throw { auth: true }; }
     me = res;
+    clearConfirmedPends();
     if (rerender || !document.getElementById("devlist")) renderApp(document.getElementById("root"));
     else updateDynamic();
   }).catch(function(e){
@@ -286,6 +320,8 @@ function updateDynamic(){
 
 function deviceCard(d){
   var rep = d.report;
+  var p = pendFor(d);
+  var lockedNow = p ? p.type === "lock" : !!(rep && rep.latched);
   var st = deviceStatus(rep);
   var used = rep ? Number(rep.used_bytes) || 0 : 0;
   var limit = (d.settings.limit_mb || 0) * 1048576;
@@ -300,7 +336,9 @@ function deviceCard(d){
           : '<span class="badge"><span class="dot"></span>' + esc(t("lastSeen")) + ': ' + esc(relTime(d.last_seen_at)) + '</span>') +
         (rep ? '<span class="badge ' + st.cls + '"><span class="dot"></span>' + esc(st.label) + '</span>' : '') +
       '</div>' +
-      (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : '') +
+      (p
+        ? '<span class="badge grace">' + esc(p.type === "lock" ? t("pendingLock") : t("pendingUnlock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
+        : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : '')) +
     '</div>' +
     (rep ? '<div class="bar"><div class="' + barCls.trim() + '" style="width:' + pct + '%"></div></div>' +
       '<div class="spread"><span>' + esc(t("usage")) + ': ' + fmtBytes(used) + " / " + fmtBytes(limit) +
@@ -310,8 +348,10 @@ function deviceCard(d){
       (rep.app_version ? '<div class="sub">v' + esc(rep.app_version) + '</div>' : '')
       : '<div class="sub" style="margin-top:8px">ℹ ' + esc(t("lastSeen")) + ': ' + esc(relTime(d.last_seen_at)) + '</div>') +
     '<div class="row" style="margin-top:12px">' +
-      '<button class="danger small" data-lock="' + d.id + '">' + esc(t("lockNow")) + '</button>' +
-      '<button class="ok small" data-unlock="' + d.id + '">' + esc(t("unlock15")) + '</button>' +
+      (lockedNow
+        ? '<button class="ok small" data-unlock-full="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFull")) + '</button>' +
+          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlock15")) + '</button>'
+        : '<button class="danger small" data-lock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("lockNow")) + '</button>') +
       '<button class="ghost small" data-settings="' + d.id + '">' + esc(t("settings")) + '</button>' +
     '</div>' +
     '<div class="row sep">' +
@@ -340,15 +380,25 @@ function settingsPanel(d){
 
 function wireDevice(d){
   var q = function(sel){ return document.querySelector("[" + sel + '="' + d.id + '"]'); };
-  var lockBtn = q("data-lock"), unlockBtn = q("data-unlock"),
+  var lockBtn = q("data-lock"), unlockBtn = q("data-unlock"), fullBtn = q("data-unlock-full"),
       setBtn = q("data-settings"), revBtn = q("data-revoke"), saveBtn = q("data-save");
   if (lockBtn) lockBtn.onclick = function(){
     if (!confirm(t("confirmLock"))) return;
-    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(refreshSoon);
+    pend[d.id] = { type: "lock", until: Date.now() + PEND_TTL_MS };
+    updateDynamic();
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(trackRefresh);
   };
   if (unlockBtn) unlockBtn.onclick = function(){
     if (!confirm(t("confirmUnlock"))) return;
-    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: 15 } } }).then(refreshSoon);
+    pend[d.id] = { type: "unlock", timed: true, until: Date.now() + PEND_TTL_MS };
+    updateDynamic();
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: 15 } } }).then(trackRefresh);
+  };
+  if (fullBtn) fullBtn.onclick = function(){
+    if (!confirm(t("confirmUnlockFull"))) return;
+    pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS };
+    updateDynamic();
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { full: true } } }).then(trackRefresh);
   };
   if (setBtn) setBtn.onclick = function(){
     openSettings[d.id] = !openSettings[d.id];
@@ -374,7 +424,7 @@ function wireDevice(d){
       .then(function(){
         var m = document.getElementById("cfgmsg" + d.id);
         if (m) m.textContent = t("saved");
-        refreshSoon();
+        trackRefresh();
       });
   };
 }
@@ -409,7 +459,12 @@ function loadAudit(){
   });
 }
 
-function refreshSoon(){ setTimeout(function(){ refresh(); }, 700); }
+// spec-003 FR-005: the device confirms on its next poll (~30 s), so keep
+// pulling until the new state lands instead of one blind 700 ms refresh
+function trackRefresh(){
+  var delays = [1000, 5000, 15000, 30000, 45000, 60000];
+  for (var i = 0; i < delays.length; i++) setTimeout(refresh, delays[i]);
+}
 
 // ------------------------------------------------------------------ boot
 
@@ -417,7 +472,9 @@ setLang(lang);
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("/sw.js").catch(function(){});
 }
-setInterval(function(){ refresh(); }, 30000);
+setInterval(function(){ refresh(); }, 10000);
+document.addEventListener("visibilitychange", function(){ if (!document.hidden) refresh(); });
+window.addEventListener("focus", function(){ refresh(); });
 `;
 
 // src/dashboard.js
@@ -440,7 +497,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v2";
+var SW_JS = `const CACHE = "dg-v3";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -993,8 +1050,14 @@ async function handleCommand(request, env, parent, deviceId) {
   if (!["lock", "unlock", "config"].includes(type)) return badRequest("unknown command type");
   let payload = {};
   if (type === "unlock") {
-    const mins = parseInt(body.payload && body.payload.minutes, 10);
-    payload.minutes = Number.isFinite(mins) && mins > 0 && mins <= 480 ? mins : 15;
+    // spec-003 FR-001: full unlock clears the device latch until the next
+    // lock; the minutes path is unchanged (clamp 1..480, default 15)
+    if (body.payload && body.payload.full === true) {
+      payload = { full: true };
+    } else {
+      const mins = parseInt(body.payload && body.payload.minutes, 10);
+      payload.minutes = Number.isFinite(mins) && mins > 0 && mins <= 480 ? mins : 15;
+    }
   } else if (type === "config") {
     const p = body.payload || {};
     const s = {};

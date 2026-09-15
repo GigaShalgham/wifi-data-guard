@@ -24,7 +24,7 @@ via `/speckit-specify`, not from memory.
 ## Current Deployed State (verified 2026-09-15)
 
 ### Android app (this repo)
-- **Latest release**: v1.3.2 (versionCode 6) — safe-unpair (spec-002); tags exist for v1.0–v1.3, v1.3-test1, v1.3-test2, v1.3.2, v1.3.2-test3
+- **Latest release**: v1.3.3 (versionCode 7) — real unlock + live dashboard (spec-003); tags exist for v1.0–v1.3, v1.3-test1/2, v1.3.2, v1.3.2-test3, v1.3.3, v1.3.3-test4
 - **Architecture**: single-module Kotlin app; `WatchdogService` (periodic watchdog + enforcement), `BlockerVpnService` (VPN-based internet blocking with self-exemption), `CloudLink` (optional cloud pairing/poll/commands), `AppClock` + `TestMode` (QA time machine, test builds only), `OwnerEnforcer`, `Prefs`, `Logger`, `LiveCounter`
 - **Signing**: v1.3+ keystore (SHA-256 c8abfd91…), backup in `download/wifidataguard-signing-v13/` on the dev sandbox (NOT in repo, per Constitution IV). The pre-v1.3 keystore was lost in a sandbox reset.
 - **QA channel**: `qa` build type → `com.example.wifidataguard.test` (installs alongside production), test panel with 1x–3600x virtual clock, usage injection, offline simulation, forced polls, verbose logs
@@ -34,7 +34,8 @@ via `/speckit-specify`, not from memory.
 - **Source**: IN THIS REPO at `cloud/worker.js` since 2026-09-15 (spec-002) — recovered from the deployed bundle, validated byte-exact, deployable via `cloud/deploy.py`; never lose it again
 - **Endpoints**: pair (6-digit code), poll (auth via device token), dashboard (`/`, `/demo`), revoke
 - **Benchmark** (2026-09-15): poll p50 ≈ 42 ms / p95 ≈ 58 ms; pair p50 ≈ 515 ms
-- **⚠️ `/demo` simulator is still live** — must be removed before real production use (Roadmap item A)
+- **⚠️ `/demo` simulator is still live** — must be removed before real production use (Roadmap item A, folded into 004 security hardening)
+- **⚠️ Bootstrap sign-in fallback is live** — no RESEND_API_KEY, so the one-time link for BOOTSTRAP_EMAIL is shown on screen; that email is exposed via public commit metadata → dashboard takeover chain. Verified NOT exploited (D1 audit 2026-09-15). Fix = user picks a secret alias email (config swap) and/or spec-004 removes/hardens the fallback
 
 ### Verified working (user device tests, v1.3-test1/2 rounds)
 - Pairing, config push, remote lock/unlock delivery (16–28 s typical, poll interval + jitter)
@@ -42,6 +43,7 @@ via `/speckit-specify`, not from memory.
 - Fail-closed on simulated offline; clock-rollback detection; PIN-gated unpair; dashboard revocation
 - Soft-lock VPN fallback announces itself (bilingual)
 - Safe unpair (v1.3.2): dashboard lock-aware revoke warning + separated Unpair button; unpaired-while-locked device relabels status and shows the parent-PIN notice
+- Real unlock + live dashboard (v1.3.3, deployed + app built): state-aware buttons, full-unlock command (clears cloud/offline latch; limit/clock degrade to timed window with notice), optimistic pending chips, 10 s + focus/visibility refresh, ~4 s confirmation poll — user device re-test pending
 
 ### Known limitations / accepted trade-offs
 - Config latency = poll interval (default ~30 s) + jitter — by design (battery), documented
@@ -53,9 +55,10 @@ via `/speckit-specify`, not from memory.
 
 | # | Spec | Why | Source |
 |---|------|-----|--------|
-| A | `003-remove-demo-endpoint` | Kill the public `/demo` simulator before real families use the Worker | Task 8/11 notes |
-| B | `004-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
-| C | `005-e2e-verification-v1.3.2` | Device re-tests of v1.3.2-test3: safe-unpair flow (lock → revoke → notice → PIN unlock → re-pair) + carry-over TCs from v1.3-test2 | Task 11 + spec-002 |
+| A | `004-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
+| B | `005-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
+| C | `006-e2e-verification-v1.3.3` | Device re-tests of v1.3.3-test4: full unlock (US1), live panel (US2), state-aware buttons (US3) + safe-unpair carry-over from v1.3.2-test3 | spec-003 + spec-002 |
+| ✓ | ~~`003-dashboard-live-unlock`~~ DONE (v1.3.3, 2026-09-15) | Real unlock + live dashboard | user bug report |
 | ✓ | ~~`002-safe-unpair`~~ DONE (v1.3.2, 2026-09-15) | Revoked-while-locked trap: warning, separation, honest relabel, PIN notice, cloud source in repo | user bug report |
 
 ## Requirements

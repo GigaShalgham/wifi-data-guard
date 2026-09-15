@@ -178,11 +178,20 @@ preferences. From then on the watchdog thread polls the server roughly every
 30 seconds (with jitter) and applies whatever the parent commands.
 
 **Remote commands.** `lock` (optionally with a reason shown on the device),
-`unlock` (minutes), and `config` (limit, period, hard mode, unlock duration,
-offline tolerance, poll interval). Cloud values are authoritative when they
-change; local tweaks keep working in between. Remote locks survive the daily
-rollover, and revoking the device from the dashboard returns the phone to
+`unlock` — either a timed window (minutes) or a **full unlock** that clears the
+cloud lock until the next lock command (v1.3.3; the data limit and clock-tamper
+defenses are never bypassed) — and `config` (limit, period, hard mode, unlock
+duration, offline tolerance, poll interval). Cloud values are authoritative when
+they change; local tweaks keep working in between. Remote locks survive the
+daily rollover, and revoking the device from the dashboard returns the phone to
 local-only mode on the next poll.
+
+**Live dashboard (v1.3.3).** Buttons match the device's reported state (a
+locked device shows unlock actions, an unlocked one shows Lock), every command
+shows an immediate "Locking…/Unlocking… — waiting for device" state, and the
+panel refreshes itself every 10 s plus whenever the tab becomes visible — no
+manual refresh needed. The app confirms each command with an extra poll ~4 s
+after applying it, so the badge settles in seconds.
 
 **Fail-closed, not fail-open.** The whole design assumes the child might pull
 the plug on connectivity. If the device cannot reach the server for longer than
@@ -346,6 +355,7 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.3) | Real unlock + live dashboard (spec-003): full unlock command clears the cloud lock until the next lock (limit/clock locks degrade honestly to a timed window); state-aware buttons; instant "waiting for device" feedback on every command; 10 s auto-refresh + refresh-on-focus; app confirms commands ~4 s after applying them |
 | [v1.3.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.2) | Safe unpair: dashboard warns before unpairing a LOCKED device (bilingual) and the Unpair button is separated from Lock/Unlock; a device unpaired while locked keeps the lock (fail-closed) but relabels its status and shows a parent-PIN recovery notice; cloud Worker source now lives in `cloud/` |
 | [v1.3.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3-test2) | Hard-lock control-channel survival (VPN tunnel exempts the guard app: remote unlock + live reports during a lock), honest soft-lock fallback notification |
 | [v1.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3) | CloudLink: optional cloud pairing, remote lock/unlock/config, ~30 s usage reports, fail-closed offline lock, clock-tamper defense, PIN-gated unpair |
