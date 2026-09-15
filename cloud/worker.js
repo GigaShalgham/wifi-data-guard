@@ -30,7 +30,6 @@ var I18N = {
     grace: "grace",
     normal: "ok",
     lockNow: "Lock now",
-    unlockFor: "Unlock %dm",
     unlockFull: "Unlock",
     confirmUnlockFull: "Fully unlock this device? Internet stays open until you lock it again (or its data limit is reached). Device app v1.3.3+ required \u2014 older apps treat this as a 15-minute window.",
     pendingLock: "Locking\u2026",
@@ -58,7 +57,12 @@ var I18N = {
     daily: "daily",
     monthly: "monthly",
     hardMode: "Hard mode (VPN)",
-    unlockMin: "Unlock window (min)",
+    pickTitle: "Grant unlock time",
+    pickMin: "%d min",
+    pickCustom: "Custom (minutes)",
+    pickConfirm: "Unlock ⏱",
+    pickCancel: "Cancel",
+    timedUnlock: "⏱ Timed unlock",
     offlineTol: "Offline tolerance (min)",
     audit: "Recent activity",
     noAudit: "No activity yet.",
@@ -66,7 +70,6 @@ var I18N = {
     errGeneric: "Something went wrong. Try again.",
     errAuth: "Session expired — please sign in again.",
     confirmLock: "Lock internet on this device now?",
-    confirmUnlockFor: "Grant a %d-minute unlock window?",
     cmds: "pending commands",
     loaded: "loaded"
   },
@@ -95,7 +98,6 @@ var I18N = {
     grace: "مهلت",
     normal: "سالم",
     lockNow: "قفل فرمان",
-    unlockFor: "باز %d دقیقه‌ای",
     unlockFull: "باز کردن قفل",
     confirmUnlockFull: "این دستگاه کاملاً باز شود؟ اینترنت تا قفل بعدی (یا رسیدن به حد مصرف) باز می‌ماند. نیازمند اپ نسخهٔ ۱.۳.۳+ — نسخه‌های قدیمی‌تر آن را پنجرهٔ ۱۵ دقیقه‌ای می‌بینند.",
     pendingLock: "در حال قفل…",
@@ -123,7 +125,12 @@ var I18N = {
     daily: "روزانه",
     monthly: "ماهانه",
     hardMode: "حالت سخت (VPN)",
-    unlockMin: "مدت بازکردن (دقیقه)",
+    pickTitle: "مدت زمان آزادی",
+    pickMin: "%d دقیقه",
+    pickCustom: "دلخواه (دقیقه)",
+    pickConfirm: "باز کن ⏱",
+    pickCancel: "انصراف",
+    timedUnlock: "⏱ بازکردن زمان‌دار",
     offlineTol: "تحمل آفلاین (دقیقه)",
     audit: "رفتار ماجرا",
     noAudit: "هنوز فعالیتی نیست.",
@@ -131,7 +138,6 @@ var I18N = {
     errGeneric: "خطایی رخ داد. دوباره تلاش کن.",
     errAuth: "سشن منقضی شد — دوباره وارد شو.",
     confirmLock: "اینترنت این دستگاه همین حالا قفل شود؟",
-    confirmUnlockFor: "پنجره باز %d دقیقه‌ای داده شود؟",
     cmds: "فرمان در انتظار",
     loaded: "بارگذاری شد"
   }
@@ -158,6 +164,15 @@ function minsFor(s){
   var m = Number(s && s.unlock_minutes);
   if (!(m >= 1)) return 15;
   return Math.max(1, Math.min(480, Math.round(m)));
+}
+// spec-010 FR-002: the picker's seed — the last choice remembered per
+// device, else the saved server setting, else 15
+function rememberedMins(d){
+  try {
+    var v = parseInt(localStorage.getItem("unlockMin:" + d.id), 10);
+    if (isFinite(v)) return Math.max(1, Math.min(480, v));
+  } catch (e) {}
+  return minsFor(d.settings);
 }
 // spec-008 FR-006: Persian digits for runtime %d interpolation in FA
 function faNum(n){
@@ -336,6 +351,7 @@ function renderApp(root){
     '<div id="noDev" class="card sub" style="text-align:center">' + esc(t("noDevices")) + '</div>' +
 
     '<div class="card"><h2>' + esc(t("audit")) + '</h2><ul class="log" id="audit"></ul></div>' +
+    '<div id="pickWrap" class="pickback hidden"></div>' +
     '<div class="footer">Wi-Fi Data Guard · ' + esc(t("loaded")) + ' <span id="tick"></span></div>' +
   '</div>';
   root.innerHTML = h;
@@ -440,13 +456,13 @@ function deviceCard(d){
       '<div class="spread"><span>' + esc(t("usage")) + ': ' + fmtBytes(used) + " / " + fmtBytes(limit) +
       '</span><span class="pct">' + pct + '%</span></div>' +
       '<div class="spark" id="spark' + d.id + '"></div>' +
-      (rep.battery_pct !== undefined ? '<div class="sub">ὐb ' + rep.battery_pct + '%</div>' : '') +
+      (rep.battery_pct !== undefined ? '<div class="sub">🔋 ' + rep.battery_pct + '%</div>' : '') +
       (rep.app_version ? '<div class="sub">v' + esc(rep.app_version) + '</div>' : '')
       : '<div class="sub" style="margin-top:8px">ℹ ' + esc(t("lastSeen")) + ': ' + esc(relTime(d.last_seen_at)) + '</div>') +
     '<div class="row" style="margin-top:12px">' +
       (lockedNow
         ? '<button class="ok small" data-unlock-full="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFull")) + '</button>' +
-          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFor").replace("%d", lang === "fa" ? faNum(minsFor(d.settings)) : String(minsFor(d.settings)))) + '</button>'
+          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("timedUnlock")) + '</button>'
         : '<button class="danger small" data-lock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("lockNow")) + '</button>') +
       '<button class="ghost small" data-settings="' + d.id + '">' + esc(t("settings")) + '</button>' +
     '</div>' +
@@ -470,7 +486,6 @@ function settingsPanel(d){
     dr = cfgDraft[d.id] = {
       limit: String(s.limit_mb == null ? "" : s.limit_mb),
       period: s.period === "monthly" ? "monthly" : "daily",
-      unlock: String(s.unlock_minutes == null ? "0" : s.unlock_minutes),
       tol: String(s.offline_tolerance_min == null ? "10" : s.offline_tolerance_min),
       hard: s.hard_mode ? "1" : "0"
     };
@@ -480,7 +495,6 @@ function settingsPanel(d){
     '<div><label>' + esc(t("period")) + '</label><select id="cfg-period' + d.id + '">' +
       '<option value="daily"' + (dr.period !== "monthly" ? " selected" : "") + '>' + esc(t("daily")) + '</option>' +
       '<option value="monthly"' + (dr.period === "monthly" ? " selected" : "") + '>' + esc(t("monthly")) + '</option></select></div>' +
-    '<div><label>' + esc(t("unlockMin")) + '</label><input type="number" id="cfg-unlock' + d.id + '" value="' + esc(dr.unlock) + '" min="0"></div>' +
     '<div><label>' + esc(t("offlineTol")) + '</label><input type="number" id="cfg-tol' + d.id + '" value="' + esc(dr.tol) + '" min="1"></div>' +
     '<div><label>' + esc(t("hardMode")) + '</label><select id="cfg-hard' + d.id + '">' +
       '<option value="0"' + (dr.hard !== "1" ? " selected" : "") + '>' + esc(t("normal")) + '</option>' +
@@ -500,16 +514,10 @@ function wireDevice(d){
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(trackRefresh);
   };
   if (unlockBtn) unlockBtn.onclick = function(){
-    // spec-008 FR-005/006: the timed window comes from the SAVED unlock
-    // setting — label, confirm text, command and toast all agree on it
-    // (unsaved panel edits command nothing)
-    var mins = minsFor(d.settings);
-    var nums = lang === "fa" ? faNum(mins) : String(mins);
-    if (!confirm(t("confirmUnlockFor").replace("%d", nums))) return;
-    pend[d.id] = { type: "unlock", timed: true, mins: mins, until: Date.now() + PEND_TTL_MS };
-    savePend();
-    updateDynamic();
-    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: mins } } }).then(trackRefresh);
+    // spec-010 FR-002: the duration is picked AT THE POINT OF USE — the
+    // Settings field is gone; the picker seeds from the remembered choice
+    // (per device), the saved server setting, then 15
+    openPicker(d);
   };
   if (fullBtn) fullBtn.onclick = function(){
     if (!confirm(t("confirmUnlockFull"))) return;
@@ -548,14 +556,12 @@ function wireDevice(d){
   }
   bindCfg("limit", "cfg-limit" + d.id);
   bindCfg("period", "cfg-period" + d.id);
-  bindCfg("unlock", "cfg-unlock" + d.id);
   bindCfg("tol", "cfg-tol" + d.id);
   bindCfg("hard", "cfg-hard" + d.id);
   if (saveBtn) saveBtn.onclick = function(){
     var dr = cfgDraft[d.id] || {};
     var payload = { period: dr.period === "monthly" ? "monthly" : "daily", hard_mode: dr.hard === "1" };
     var nLim = parseInt(dr.limit, 10); if (isFinite(nLim)) payload.limit_mb = nLim;
-    var nUn = parseInt(dr.unlock, 10); if (isFinite(nUn)) payload.unlock_minutes = nUn;
     var nTol = parseInt(dr.tol, 10); if (isFinite(nTol)) payload.offline_tolerance_min = nTol;
     var m = document.getElementById("cfgmsg" + d.id);
     saveBtn.disabled = true;   // spec-008: kill the double-save race
@@ -576,6 +582,70 @@ function wireDevice(d){
         if (m) { m.style.color = "#ff9d94"; m.textContent = t("saveFailed"); }
       })
       .then(function(){ saveBtn.disabled = false; });
+  };
+}
+
+// spec-010 FR-002: glass duration picker — chips 15/30/60/120 + custom
+// 1–480 (invalid falls back to 15). Confirm remembers the choice per
+// device and sends the unlock command with the picked minutes; the pend
+// chip, drain toast and audit all carry it (same flow as before).
+function openPicker(d){
+  var wrap = document.getElementById("pickWrap");
+  if (!wrap || wrap.dataset.open === "1") return;
+  wrap.dataset.open = "1";
+  var presets = [15, 30, 60, 120];
+  var seed = rememberedMins(d);
+  var chipHtml = "";
+  for (var i = 0; i < presets.length; i++) {
+    var on = presets[i] === seed;
+    chipHtml += '<button class="chip' + (on ? " on" : "") + '" data-min="' + presets[i] + '">' +
+      esc(t("pickMin").replace("%d", lang === "fa" ? faNum(presets[i]) : String(presets[i]))) + '</button>';
+  }
+  wrap.className = "pickback";
+  wrap.innerHTML =
+    '<div class="picker" role="dialog" aria-modal="true">' +
+      '<h2>⏱ ' + esc(t("pickTitle")) + '</h2>' +
+      '<div class="chips">' + chipHtml + '</div>' +
+      '<label>' + esc(t("pickCustom")) + '</label>' +
+      '<input type="number" id="pickCustomInput" min="1" max="480" inputmode="numeric" value="' +
+        (presets.indexOf(seed) >= 0 ? "" : esc(String(seed))) + '">' +
+      '<div class="row" style="margin-top:14px;justify-content:flex-end">' +
+        '<button class="ghost small" id="pickCancel">' + esc(t("pickCancel")) + '</button>' +
+        '<button class="ok small" id="pickGo">' + esc(t("pickConfirm")) + '</button>' +
+      '</div>' +
+    '</div>';
+  var close = function(){
+    wrap.className = "pickback hidden";
+    wrap.innerHTML = "";
+    wrap.dataset.open = "0";
+  };
+  wrap.onclick = function(ev){ if (ev.target === wrap) close(); };
+  var chips = wrap.querySelectorAll(".chip");
+  var clearChips = function(){
+    for (var j = 0; j < chips.length; j++) chips[j].classList.remove("on");
+  };
+  for (var c = 0; c < chips.length; c++) chips[c].onclick = function(){
+    clearChips();
+    this.classList.add("on");
+    document.getElementById("pickCustomInput").value = "";
+  };
+  var ci = document.getElementById("pickCustomInput");
+  ci.oninput = function(){ clearChips(); };
+  document.getElementById("pickCancel").onclick = close;
+  document.getElementById("pickGo").onclick = function(){
+    var mins = 0;
+    var onChip = wrap.querySelector(".chip.on");
+    if (onChip) mins = parseInt(onChip.getAttribute("data-min"), 10);
+    else {
+      mins = parseInt(ci.value, 10);
+      if (!(mins >= 1 && mins <= 480)) mins = 15;
+    }
+    try { localStorage.setItem("unlockMin:" + d.id, String(mins)); } catch (e) {}
+    close();
+    pend[d.id] = { type: "unlock", timed: true, mins: mins, until: Date.now() + PEND_TTL_MS };
+    savePend();
+    updateDynamic();
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: mins } } }).then(trackRefresh);
   };
 }
 
@@ -733,7 +803,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v6";
+var SW_JS = `const CACHE = "dg-v7";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -846,6 +916,22 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .settings{margin-top:12px;border-top:1px dashed var(--line);padding-top:12px}
 .settings .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .settings label{font-size:12px;color:var(--mut);display:block;margin-bottom:4px}
+.pickback{position:fixed;inset:0;z-index:120;background:rgba(4,8,18,.62);
+  -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;padding:18px}
+.pickback.hidden{display:none}
+.picker{width:min(94vw,420px);background:rgba(13,23,48,.94);border:1px solid var(--glass-brd);
+  border-radius:22px;padding:20px;box-shadow:0 24px 70px rgba(2,6,18,.6);
+  animation:pickIn .22s cubic-bezier(.2,.7,.3,1) both}
+.picker h2{margin-bottom:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.chip{background:rgba(255,255,255,.05);border:1px solid var(--glass-brd);color:var(--txt);
+  border-radius:99px;padding:9px 16px;font:inherit;font-weight:600;box-shadow:none}
+.chip:hover{background:rgba(255,255,255,.09);transform:none}
+.chip.on{background:linear-gradient(135deg,var(--acc),#4f46e5);border-color:transparent;
+  box-shadow:0 4px 16px rgba(79,70,229,.35)}
+.picker label{font-size:12px;color:var(--mut);display:block;margin:4px 0 6px}
+@keyframes pickIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
 .footer{text-align:center;color:var(--mut);font-size:12px;margin-top:28px}
 .langbtn{position:absolute;top:18px;inset-inline-end:16px}
 .center{max-width:400px;margin:8vh auto 0}
@@ -1541,6 +1627,55 @@ async function handleChildPoll(request, env) {
   });
 }
 __name(handleChildPoll, "handleChildPoll");
+// spec-010 FR-007: daily usage deltas from cumulative report snapshots.
+// Pure function (unit-tested in scripts/verify_spec010.js). Day buckets
+// follow the device timezone (tz, minutes). used_bytes = the day's last
+// report minus the last observed report before it, clamped >= 0 (a period
+// reset reads as 0, never negative; usage across an offline gap lands on
+// the first observed day after the gap). null = day has data but no
+// baseline at all (first ever report). 0 = no data that day.
+function bucketDaily(rows, days, tz, nowMs){
+  var lastByDay = {};
+  for (var i = 0; i < rows.length; i++) {
+    var day = Math.floor((rows[i].ts + tz * 60000) / 864e5);
+    lastByDay[day] = rows[i].used_bytes;
+  }
+  var todayLocal = Math.floor((nowMs + tz * 60000) / 864e5);
+  var winStart = todayLocal - (days - 1);
+  // seed the delta baseline from the last report BEFORE the window (the
+  // fetch window intentionally includes one extra day for exactly this)
+  var prevVal;
+  var keys = Object.keys(lastByDay).map(Number).sort(function(a, b){ return a - b; });
+  for (var ki = 0; ki < keys.length; ki++) {
+    if (keys[ki] < winStart) prevVal = lastByDay[keys[ki]];
+    else break;
+  }
+  var out = [];
+  for (var k = winStart; k <= todayLocal; k++) {
+    var cur = lastByDay[k];
+    var used = 0;
+    if (cur !== undefined) {
+      used = prevVal === undefined ? null : Math.max(0, cur - prevVal);
+      prevVal = cur;
+    }
+    out.push({ day: k, used_bytes: used });
+  }
+  return out;
+}
+__name(bucketDaily, "bucketDaily");
+async function handleChildHistory(request, env) {
+  const device = await deviceFromToken(env.DB, request);
+  if (!device) return unauthorized("invalid device token");
+  const url = new URL(request.url);
+  const days = Math.max(1, Math.min(14, parseInt(url.searchParams.get("days"), 10) || 7));
+  const tz = Math.max(-1440, Math.min(1440, parseInt(url.searchParams.get("tz"), 10) || 0));
+  const t = now();
+  const rows = await env.DB.prepare(
+    "SELECT ts, used_bytes FROM usage_reports WHERE device_id = ? AND ts >= ? ORDER BY ts ASC LIMIT 2400"
+  ).bind(device.id, t - (days + 1) * 864e5).all();
+  return json({ ok: true, days: bucketDaily(rows.results || [], days, tz, t) });
+}
+__name(handleChildHistory, "handleChildHistory");
 var worker_default = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1553,6 +1688,7 @@ var worker_default = {
       if (path === "/api/auth/logout" && method === "POST") return await handleLogout(request, env);
       if (path === "/api/child/pair" && method === "POST") return await handleChildPair(request, env);
       if (path === "/api/child/poll" && method === "POST") return await handleChildPoll(request, env);
+      if (path === "/api/child/history" && method === "GET") return await handleChildHistory(request, env);
       const parent = await parentFromSession(env.DB, request);
       if (path === "/api/me" && method === "GET") {
         if (!parent) return unauthorized();

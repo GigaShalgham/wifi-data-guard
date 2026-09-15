@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Glass dark super-UI (spec-007). AppCompat stays — no library change. -->
-    <style name="Theme.DataGuard" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:windowBackground">@drawable/bg_glow</item>
+    <!-- Aurora dark super-UI (spec-010). MaterialComponents parent is required
+         for BottomNavigationView; AppCompat widgets are unaffected. -->
+    <style name="Theme.DataGuard" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_aurora</item>
         <item name="android:statusBarColor">@color/g_bg</item>
         <item name="android:navigationBarColor">@color/g_bg</item>
         <item name="android:windowLightStatusBar">false</item>

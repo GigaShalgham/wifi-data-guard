@@ -1,11 +1,13 @@
 package com.example.wifidataguard
 
 import android.Manifest
+import android.animation.ValueAnimator
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -16,21 +18,21 @@ import android.text.Html
 import android.text.InputFilter
 import android.text.InputType
 import android.view.LayoutInflater
+import android.view.MenuItem
 import android.view.View
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import org.json.JSONArray
+import java.util.TimeZone
 import kotlin.math.roundToLong
 
 class MainActivity : AppCompatActivity() {
@@ -41,20 +43,43 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swMonitor: Switch
     private lateinit var tvStatus: TextView
     private lateinit var tvUsageBig: TextView
+    private lateinit var tvUsageBigSub: TextView
     private lateinit var tvUsageSub: TextView
     private lateinit var heroDot: View
     private lateinit var heroHalo: View
     private lateinit var heroState: TextView
-    private lateinit var pbUsage: ProgressBar
-    private lateinit var spUnlock: Spinner
     private lateinit var btnUnlock: Button
+
+    // tabs (spec-010)
+    private lateinit var bottomNav: BottomNavigationView
+    private lateinit var tabStatus: View
+    private lateinit var tabUsage: View
+    private lateinit var tabParent: View
+    private var parentAuthed = false          // PIN gate, once per session
+    private var suppressNav = false
+
+    // usage tab
+    private lateinit var tvStatLeft: TextView
+    private lateinit var tvStatLimit: TextView
+    private lateinit var tvStatPeriod: TextView
+    private lateinit var tvStatBattery: TextView
+    private lateinit var chartHistory: HistoryBarView
+    private lateinit var tvHistoryNote: TextView
+    private var historyFetchInFlight = false
+
+    // ring + count-up
+    private lateinit var ringUsage: UsageRingView
+    private var countedUp = false
+
+    // unlock-duration chips (replaces the Spinner — spec-010 FR-105)
+    private val chipOptions = intArrayOf(5, 15, 30, 60, 0)   // 0 = until period end
+    private lateinit var chips: List<Button>
 
     private var fa = false
 
-    // guards against programmatic listener echo (switch / checkbox / spinner)
+    // guards against programmatic listener echo (switch / checkbox)
     private var suppressSw = false
     private var suppressHard = false
-    private var suppressSpinner = false
 
     private var uiTickCount = 0
     private var cachedChecklist = ""
@@ -63,8 +88,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var glass: GlassUi
     private var guardPrev: GuardStateUi.S? = null
     private var suppressNextTransition = false
-
-    private val unlockOptions = intArrayOf(5, 15, 30, 60, 0)   // minutes; 0 = until period end
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private val uiTick = object : Runnable {
@@ -94,13 +117,25 @@ class MainActivity : AppCompatActivity() {
         swMonitor     = findViewById(R.id.swMonitor)
         tvStatus      = findViewById(R.id.tvStatus)
         tvUsageBig    = findViewById(R.id.tvUsageBig)
+        tvUsageBigSub = findViewById(R.id.tvUsageBigSub)
         tvUsageSub    = findViewById(R.id.tvUsageSub)
         heroDot       = findViewById(R.id.heroDot)
         heroHalo      = findViewById(R.id.heroHalo)
         heroState     = findViewById(R.id.heroState)
-        pbUsage       = findViewById(R.id.pbUsage)
-        spUnlock      = findViewById(R.id.spUnlock)
         btnUnlock     = findViewById(R.id.btnUnlock)
+
+        bottomNav = findViewById(R.id.bottomNav)
+        tabStatus = findViewById(R.id.tabStatus)
+        tabUsage  = findViewById(R.id.tabUsage)
+        tabParent = findViewById(R.id.tabParent)
+
+        ringUsage     = findViewById(R.id.ringUsage)
+        tvStatLeft    = findViewById(R.id.tvStatLeft)
+        tvStatLimit   = findViewById(R.id.tvStatLimit)
+        tvStatPeriod  = findViewById(R.id.tvStatPeriod)
+        tvStatBattery = findViewById(R.id.tvStatBattery)
+        chartHistory  = findViewById(R.id.chartHistory)
+        tvHistoryNote = findViewById(R.id.tvHistoryNote)
 
         glass = GlassUi(this)
 
@@ -110,26 +145,35 @@ class MainActivity : AppCompatActivity() {
         cbHard.isChecked    = Prefs.hardMode(this)
         swMonitor.isChecked = Prefs.monitoring(this)
 
-        // unlock-duration spinner
-        val labels = unlockOptions.map { m ->
-            if (m == 0) tr(T.untilPeriod)
-            else tr(T.minutesFmt).replace("%d", m.toString())
-        }
-        val adapter = ArrayAdapter(this, R.layout.spinner_item, labels)
-        adapter.setDropDownViewResource(R.layout.spinner_item)
-        spUnlock.adapter = adapter
-        val savedIdx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
-        spUnlock.setSelection(savedIdx)
-        spUnlock.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (suppressSpinner) return
-                if (Prefs.monitoring(this@MainActivity)) {
-                    // guard is armed: changing the unlock duration needs the PIN
-                    revertSpinner()
-                    guarded(tr(T.unlockDur)) { applySpinner(pos) }
-                } else applySpinner(pos)
+        // ---- unlock-duration chips (same PIN-gated semantics as the old Spinner) ----
+        chips = listOf(
+            findViewById(R.id.btnChip5), findViewById(R.id.btnChip15),
+            findViewById(R.id.btnChip30), findViewById(R.id.btnChip60),
+            findViewById(R.id.btnChipEnd))
+        chips.forEachIndexed { i, btn ->
+            btn.setOnClickListener {
+                if (Prefs.monitoring(this)) {
+                    renderChips()   // revert visual until the gate approves
+                    guarded(tr(T.unlockDur)) { applyChip(i) }
+                } else applyChip(i)
             }
-            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
+        renderChips()
+
+        // ---- bottom navigation (spec-010 FR-101/102) ----
+        bottomNav.setOnItemSelectedListener { item: MenuItem ->
+            if (suppressNav) return@setOnItemSelectedListener true
+            when (item.itemId) {
+                R.id.nav_status -> { showTab(tabStatus); true }
+                R.id.nav_usage  -> { showTab(tabUsage); onUsageEntered(false); true }
+                R.id.nav_parent -> {
+                    // returning false keeps the item unselected when gated —
+                    // a failed/cancelled PIN leaves the user where they were
+                    if (parentAuthed) { showTab(tabParent); true }
+                    else { maybeGateParent(); false }
+                }
+                else -> false
+            }
         }
 
         findViewById<Button>(R.id.btnLang).setOnClickListener {
@@ -141,7 +185,7 @@ class MainActivity : AppCompatActivity() {
         cbHard.setOnCheckedChangeListener { _, checked ->
             if (suppressHard) return@setOnCheckedChangeListener
             if (Prefs.monitoring(this) || WatchdogService.latched) {
-                // FIX: enforcement mode is a security setting -> PIN-gated while armed
+                // enforcement mode is a security setting -> PIN-gated while armed
                 setHardChecked(!checked)
                 guarded(if (checked) tr(T.hardOn) else tr(T.hardOff)) {
                     setHardChecked(checked)
@@ -164,6 +208,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnLogs).setOnClickListener   { showLogs() }
         findViewById<Button>(R.id.btnOwner).setOnClickListener  { showOwnerGuide() }
         findViewById<Button>(R.id.btnCloud).setOnClickListener  { showCloudDialog() }
+        findViewById<Button>(R.id.btnHistRefresh).setOnClickListener {
+            onUsageEntered(true)
+        }
 
         // 🧪 test panel — only exists in the .test build, hidden otherwise
         val btnTest = findViewById<Button>(R.id.btnTest)
@@ -178,17 +225,13 @@ class MainActivity : AppCompatActivity() {
 
         applyTexts()
 
-        // entrance-once (spec-007): staggered slide-fade on create; the 1 s tick never replays it.
-        // v1.3.6 CRITICAL FIX: element type must be pinned to View — Kotlin otherwise infers
-        // Button (from btnUnlock, the only concretely-typed element) and the vararg array
-        // becomes Button[], so storing the LinearLayout cards throws ArrayStoreException
-        // at cold start on every device (the v1.3.5 launch crash).
+        // entrance-once (spec-007): staggered slide-fade on create; the 1 s tick
+        // never replays it. Element type pinned to View — mixed-type inference
+        // is the v1.3.5 launch crash (spec-009), never again.
         glass.entrance(listOf(
             findViewById<View>(R.id.headerRow),
             findViewById<View>(R.id.cardHero),
-            findViewById<View>(R.id.cardSettings),
-            btnUnlock as View,
-            findViewById<View>(R.id.cardTools)))
+            btnUnlock as View))
     }
 
     override fun onResume() {
@@ -211,6 +254,93 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.startForegroundService(this,
             Intent(this, WatchdogService::class.java))
         refreshUi()
+    }
+
+    // ================= tabs (spec-010) =================
+
+    private fun showTab(tab: View) {
+        for (t in listOf(tabStatus, tabUsage, tabParent)) {
+            if (t !== tab) t.visibility = View.GONE
+        }
+        if (tab.visibility == View.VISIBLE) return
+        if (glass.animationsEnabled()) {
+            tab.alpha = 0f
+            tab.visibility = View.VISIBLE
+            tab.animate().alpha(1f).setDuration(160)
+                .withEndAction { tab.alpha = 1f }.start()
+        } else {
+            tab.visibility = View.VISIBLE
+        }
+    }
+
+    /** PIN gate for the Parent tab — same rules as every guarded() action:
+     *  no PIN + unarmed + not owner -> straight in; PIN set -> ask; the
+     *  nav item never selects until the gate passes. */
+    private fun maybeGateParent() {
+        if (!Prefs.pinSet(this)) {
+            if (!OwnerEnforcer.isDeviceOwner(this) && !Prefs.monitoring(this)) {
+                switchToParent(); return
+            }
+            askNewPinDouble(tr(T.parentGate)) { switchToParent() }
+            return
+        }
+        askPin("${tr(T.parentGate)} — ${if (fa) "رمز را وارد کن" else "enter PIN"}") {
+            switchToParent()
+        }
+    }
+
+    private fun switchToParent() {
+        parentAuthed = true
+        suppressNav = true   // armed BEFORE the programmatic selection (spec-009 lesson)
+        bottomNav.selectedItemId = R.id.nav_parent
+        suppressNav = false
+        showTab(tabParent)
+    }
+
+    // ================= usage history (spec-010, cosmetic) =================
+
+    /** Renders the cache, then refreshes in the background when stale. */
+    private fun onUsageEntered(manual: Boolean) {
+        renderHistory()
+        if (!CloudLink.paired(this)) return
+        val age = System.currentTimeMillis() - Prefs.historyCacheAt(this)
+        if (manual || (!historyFetchInFlight &&
+                (Prefs.historyCacheAt(this) == 0L || age > 5 * 60_000L))) {
+            historyFetchInFlight = true
+            CloudLink.fetchHistory(this) { ok, _ ->
+                historyFetchInFlight = false
+                if (ok) renderHistory()
+            }
+        }
+    }
+
+    private fun renderHistory() {
+        val tz = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000
+        val todayDay = (System.currentTimeMillis() + tz * 60_000L).floorDiv(86_400_000L)
+        val arr = try { JSONArray(Prefs.historyCache(this)) } catch (_: Exception) { null }
+        val days = mutableListOf<HistoryBarView.Day>()
+        var anyData = false
+        if (arr != null) for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val day = o.optLong("day", Long.MIN_VALUE)
+            if (day == Long.MIN_VALUE) continue
+            val ub = if (o.has("used_bytes") && !o.isNull("used_bytes"))
+                o.optLong("used_bytes") else null
+            if (ub != null && ub > 0) anyData = true
+            days.add(HistoryBarView.Day(
+                day, ub, HistoryUi.weekdayLabel(day, tz, fa), day == todayDay))
+        }
+        if (days.isEmpty() || !anyData) {
+            chartHistory.setData(emptyList(), 0L)
+            tvHistoryNote.text = if (!CloudLink.paired(this)) tr(T.histPair)
+            else tr(T.histEmpty)
+            return
+        }
+        chartHistory.animationsEnabled = glass.animationsEnabled()
+        chartHistory.setData(
+            days, HistoryUi.dayBudget(Prefs.limitBytes(this), Prefs.monthlyReset(this)))
+        val mins = (System.currentTimeMillis() - Prefs.historyCacheAt(this)) / 60_000
+        tvHistoryNote.text = HistoryUi.updatedAgo(mins, fa)
     }
 
     // ================= texts =================
@@ -238,13 +368,10 @@ class MainActivity : AppCompatActivity() {
             "fa" to "حالت سخت (قطع کل اینترنت با VPN)")
         val mapEnforce = mapOf("en" to "Enforce limit", "fa" to "اجرا و نظارت")
         val mapHint    = mapOf("en" to "Limit in MB (e.g. 750)", "fa" to "حد به مگابایت (مثلا ۷۵۰)")
-        val minutesFmt = mapOf("en" to "%d minutes", "fa" to "‏%d دقیقه")
-        val untilPeriod= mapOf("en" to "Until period end", "fa" to "تا پایان دوره")
         val usage      = mapOf("en" to "USAGE", "fa" to "مصرف")
         val rearm      = mapOf("en" to "Re-arms in %s ⏳", "fa" to "قفل مجدد در %s ⏳")
         val blocked    = mapOf("en" to "BLOCKED", "fa" to "قفل شده")
         val grace      = mapOf("en" to "FREE TIME", "fa" to "مهلت آزاد")
-        val lockNow    = mapOf("en" to "Lock again now", "fa" to "قفل کن همین حالا")
         val unlockedMsg= mapOf("en" to "Unlocked", "fa" to "آزاد شد")
         val protected_ = mapOf("en" to "Protected", "fa" to "محافظت فعال")
         val noLimit    = mapOf("en" to "no limit set", "fa" to "حدی تعیین نشده")
@@ -254,6 +381,31 @@ class MainActivity : AppCompatActivity() {
         val ownerLbl   = mapOf("en" to "Device owner", "fa" to "Device Owner")
         val enforceLbl = mapOf("en" to "Enforce ON", "fa" to "نظارت روشن")
         val cloudLbl   = mapOf("en" to "Cloud linked", "fa" to "متصل به ابر")
+
+        // spec-010
+        val tabStatus  = mapOf("en" to "Status", "fa" to "وضعیت")
+        val tabUsage   = mapOf("en" to "Usage", "fa" to "مصرف")
+        val tabParent  = mapOf("en" to "Parent", "fa" to "والد")
+        val parentGate = mapOf("en" to "Parent panel", "fa" to "پنل والد")
+        val lblUsed    = mapOf("en" to "Used this period", "fa" to "مصرف این دوره")
+        val lblLeft    = mapOf("en" to "Left", "fa" to "باقی‌مانده")
+        val lblLimit   = mapOf("en" to "Limit", "fa" to "حد")
+        val lblPeriod  = mapOf("en" to "Period ends", "fa" to "پایان دوره")
+        val lblBattery = mapOf("en" to "Battery", "fa" to "باتری")
+        val of         = mapOf("en" to "of", "fa" to "از")
+        val dailyShort = mapOf("en" to "daily reset", "fa" to "ریست روزانه")
+        val monthlyShort = mapOf("en" to "monthly reset", "fa" to "ریست ماهانه")
+        val histTitle  = mapOf("en" to "Last 7 days", "fa" to "۷ روز اخیر")
+        val histPair   = mapOf("en" to
+            "☁ Pair this device (Parent tab → Cloud pairing) to see your 7-day history here.",
+            "fa" to "☁ برای دیدن تاریخچه ۷ روزه، دستگاه را از تب والد به ابر وصل کن.")
+        val histEmpty  = mapOf("en" to
+            "No history yet — the device reports about every 10 minutes while paired.",
+            "fa" to "هنوز تاریخی نیست — دستگاه تقریباً هر ۱۰ دقیقه گزارش می‌دهد.")
+        val unlockDurCap = mapOf("en" to "⏱ Unlock duration", "fa" to "⏱ مدت باز شدن قفل")
+        val chipHint  = mapOf("en" to
+            "How long a PIN unlock lasts. ∞ = until the period ends.",
+            "fa" to "مدت باز ماندن بعد از رمز. ∞ = تا پایان دوره.")
     }
 
     private fun applyTexts() {
@@ -269,7 +421,34 @@ class MainActivity : AppCompatActivity() {
         cbHard.text    = tr(T.mapHard)
         swMonitor.text = tr(T.mapEnforce)
         etLimit.hint   = tr(T.mapHint)
-        rebuildSpinnerLabels()
+
+        // tabs
+        bottomNav.menu.findItem(R.id.nav_status).title = tr(T.tabStatus)
+        bottomNav.menu.findItem(R.id.nav_usage).title  = tr(T.tabUsage)
+        bottomNav.menu.findItem(R.id.nav_parent).title = tr(T.tabParent)
+
+        // usage tab labels
+        findViewById<TextView>(R.id.tvLblUsed).text    = tr(T.lblUsed).uppercase()
+        findViewById<TextView>(R.id.tvLblLeft).text    = tr(T.lblLeft).uppercase()
+        findViewById<TextView>(R.id.tvLblLimit).text   = tr(T.lblLimit).uppercase()
+        findViewById<TextView>(R.id.tvLblPeriod).text  = tr(T.lblPeriod).uppercase()
+        findViewById<TextView>(R.id.tvLblBattery).text = tr(T.lblBattery).uppercase()
+        findViewById<TextView>(R.id.tvHistoryTitle).text = tr(T.histTitle).uppercase()
+
+        // parent tab
+        findViewById<TextView>(R.id.tvUnlockDurCaption).text = tr(T.unlockDurCap).uppercase()
+        findViewById<TextView>(R.id.tvChipHint).text = tr(T.chipHint)
+
+        // chips relabel + re-render selection
+        chips.forEachIndexed { i, btn ->
+            val m = chipOptions[i]
+            btn.text = if (m == 0) "∞"
+            else if (fa) faDigits(m.toString()) + "د" else "${m}m"
+        }
+        renderChips()
+
+        // history labels are language-dependent too
+        if (::chartHistory.isInitialized) renderHistory()
     }
 
     // ---- programmatic-change helpers (prevent listener echo storms) ----
@@ -286,35 +465,27 @@ class MainActivity : AppCompatActivity() {
         suppressHard = false
     }
 
-    private fun applySpinner(pos: Int) {
-        Prefs.setUnlockMinutes(this, unlockOptions[pos])
-        suppressSpinnerBriefly()   // arm BEFORE setSelection: even a synchronous echo cannot re-enter
-        spUnlock.setSelection(pos)
+    // ---- unlock-duration chips ----
+
+    private fun applyChip(i: Int) {
+        Prefs.setUnlockMinutes(this, chipOptions[i])
+        renderChips()
     }
 
-    private fun revertSpinner() {
-        val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
-        suppressSpinnerBriefly()   // arm BEFORE setSelection — re-entrancy guard (v1.3.6)
-        spUnlock.setSelection(idx)
-    }
-
-    private fun rebuildSpinnerLabels() {
-        val labels = unlockOptions.map { m ->
-            if (m == 0) tr(T.untilPeriod)
-            else tr(T.minutesFmt).replace("%d", m.toString())
+    private fun renderChips() {
+        val cur = Prefs.unlockMinutes(this)
+        chips.forEachIndexed { i, btn ->
+            val on = chipOptions[i] == cur
+            btn.setBackgroundResource(if (on) R.drawable.bg_chip_on else R.drawable.bg_chip)
+            btn.setTextColor(if (on) 0xFFFFFFFF.toInt() else 0xFFC9D2E8.toInt())
         }
-        val ad = spUnlock.adapter as? ArrayAdapter<String> ?: return
-        suppressSpinnerBriefly()   // arm BEFORE the data change — notifyDataSetChanged re-fires selection
-        ad.clear(); ad.addAll(labels); ad.notifyDataSetChanged()
-        val idx = unlockOptions.indexOf(Prefs.unlockMinutes(this)).let { if (it < 0) 0 else it }
-        spUnlock.setSelection(idx)
     }
 
-    /** Spinner selection callbacks fire asynchronously (next layout pass) —
-     *  stay suppressed long enough to swallow that echo. */
-    private fun suppressSpinnerBriefly() {
-        suppressSpinner = true
-        uiHandler.postDelayed({ suppressSpinner = false }, 300)
+    private fun faDigits(s: String): String = buildString {
+        for (ch in s) append(when (ch) {
+            '0' -> '۰'; '1' -> '۱'; '2' -> '۲'; '3' -> '۳'; '4' -> '۴'
+            '5' -> '۵'; '6' -> '۶'; '7' -> '۷'; '8' -> '۸'; '9' -> '۹'
+            else -> ch })
     }
 
     // ================= PIN gate =================
@@ -771,11 +942,32 @@ class MainActivity : AppCompatActivity() {
         val used = LiveCounter.currentBytes()
         val graceLeft = (Prefs.graceUntil(this) - AppClock.now()) / 1000
 
-        // big usage number
-        tvUsageBig.text = humanize(used)
+        // big usage number (Usage tab) — counts up ONCE per launch (spec-010)
+        if (!countedUp && used > 0 && glass.animationsEnabled()) {
+            countedUp = true
+            val a = ValueAnimator.ofFloat(0f, used.toFloat())
+            a.duration = 600
+            a.addUpdateListener { anim ->
+                tvUsageBig.text = humanize((anim.animatedValue as Float).toLong())
+            }
+            a.start()
+        } else {
+            countedUp = true
+            tvUsageBig.text = humanize(used)
+        }
+        tvUsageBigSub.text = if (limit > 0)
+            "${tr(T.of)} ${humanize(limit)} • ${pct(used, limit)}% • " +
+            tr(if (Prefs.monthlyReset(this)) T.monthlyShort else T.dailyShort)
+        else tr(T.noLimit)
         tvUsageSub.text = if (limit > 0)
             "/ ${humanize(limit)} • ${pct(used, limit)}%"
         else tr(T.noLimit)
+
+        // usage-tab stats
+        tvStatLeft.text  = if (limit > 0) humanize((limit - used).coerceAtLeast(0)) else "—"
+        tvStatLimit.text = if (limit > 0) humanize(limit) else "—"
+        tvStatPeriod.text = fmtPeriodLeft(endOfPeriod(this) - AppClock.now())
+        tvStatBattery.text = "${batteryPct()}%"
 
         // glass hero state (same truth sources + precedence as the legacy status line — Art. VIII)
         val state = GuardStateUi.stateOf(graceLeft, WatchdogService.latched)
@@ -800,16 +992,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // gradient progress bar (drawable swap — a tint would flatten the gradient)
-        if (limit > 0) {
-            val p = ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
-            pbUsage.progressDrawable = ContextCompat.getDrawable(this, when {
-                p >= 100 -> R.drawable.progress_red
-                p >= 80  -> R.drawable.progress_amber
-                else     -> R.drawable.progress_green
-            })
-            pbUsage.progress = p
-        }
+        // animated ring (Status tab) — same truth the flat bar drew
+        ringUsage.animationsEnabled = glass.animationsEnabled()
+        ringUsage.setUsage(used, limit, state)
+
+        // blocked badge on the Status tab icon (spec-010 FR-101)
+        try {
+            val badge = bottomNav.getOrCreateBadge(R.id.nav_status)
+            badge.backgroundColor = 0xFFFF5449.toInt()
+            badge.isVisible = state == GuardStateUi.S.BLOCKED
+        } catch (_: Exception) {}
 
         // unlock button + status line
         val statusLine = when (state) {
@@ -866,6 +1058,22 @@ class MainActivity : AppCompatActivity() {
             .append(tr(T.enforceLbl)).append("\n")
         append(mark(CloudLink.paired(this@MainActivity))).append(tr(T.cloudLbl))
     }
+
+    private fun fmtPeriodLeft(ms: Long): String {
+        if (ms <= 0) return "—"
+        val h = ms / 3_600_000
+        val m = (ms % 3_600_000) / 60_000
+        return when {
+            h >= 24 -> "${h / 24}d ${h % 24}h"
+            h > 0   -> "${h}h ${m}m"
+            else    -> "${m}m"
+        }
+    }
+
+    private fun batteryPct(): Int = try {
+        getSystemService(BatteryManager::class.java)
+            .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY).coerceIn(0, 100)
+    } catch (_: Exception) { 0 }
 
     private fun pct(used: Long, limit: Long): Int =
         if (limit <= 0) 0 else ((used * 100.0 / limit).toInt()).coerceIn(0, 100)

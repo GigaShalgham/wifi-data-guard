@@ -285,7 +285,53 @@ object CloudLink {
         applyConfig(c, cfg)
     }
 
+    // ------------------------------------------------------------ history (spec-010, cosmetic)
+
+    /** Fetches this device's daily usage history. Purely presentational:
+     * failures never latch, never block — the caller degrades to cached
+     * data or an honest hint (Art. II safe by construction). */
+    fun fetchHistory(c: Context, days: Int = 7,
+                     cb: (ok: Boolean, daysJson: String?) -> Unit) {
+        if (!paired(c)) { cb(false, null); return }
+        val appCtx = c.applicationContext
+        pool.execute {
+            val tz = java.util.TimeZone.getDefault()
+                .getOffset(System.currentTimeMillis()) / 60_000
+            val (status, txt) = try {
+                httpGet("$BASE/api/child/history?days=$days&tz=$tz", Prefs.cloudToken(appCtx))
+            } catch (_: Exception) { -1 to "" }
+            main.post {
+                if (status == 200) {
+                    try {
+                        val arr = JSONObject(txt).optJSONArray("days") ?: org.json.JSONArray()
+                        Prefs.setHistoryCache(appCtx, arr.toString())
+                        Prefs.setHistoryCacheAt(appCtx, System.currentTimeMillis())
+                        cb(true, arr.toString())
+                    } catch (_: Exception) { cb(false, null) }
+                } else cb(false, null)
+            }
+        }
+    }
+
     // ------------------------------------------------------------ http
+
+    private fun httpGet(url: String, token: String): Pair<Int, String> {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10_000
+            readTimeout = 15_000
+            setRequestProperty("User-Agent", "DataGuard-Android/1.4.0")
+            if (token.isNotEmpty()) setRequestProperty("Authorization", "Bearer $token")
+        }
+        try {
+            val code = conn.responseCode
+            val txt = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                ?.bufferedReader()?.use { it.readText() } ?: ""
+            return code to txt
+        } finally {
+            conn.disconnect()
+        }
+    }
 
     private fun httpPost(url: String, token: String?, body: String,
                          readTimeoutMs: Int = 15_000): Pair<Int, String> {
@@ -295,7 +341,7 @@ object CloudLink {
             readTimeout = readTimeoutMs
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("User-Agent", "DataGuard-Android/1.3.6")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.4.0")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
         }
         try {

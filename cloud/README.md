@@ -80,6 +80,7 @@ The Worker keeps deployment history in the dashboard; simplest rollback is
 | `/api/pair-code` | POST | parent session | generate 6-digit pairing code |
 | `/api/child/pair` | POST | pairing code | device ↔ parent pairing, returns device token |
 | `/api/child/poll` | POST | device token | usage report ⇄ pending commands + config; optional `"wait": 1..25` (s) hot-mode long-poll (see below) |
+| `/api/child/history` | GET | device token | own daily usage history (spec-010, see below) |
 | `/api/child/ack` | POST | device token | acknowledge applied commands |
 | `/api/devices/{id}/command` | POST | parent session | lock / unlock / config |
 | `/api/devices/{id}/revoke` | POST | parent session | unpair device |
@@ -103,17 +104,39 @@ the hot window to `now + 120 s` (fast ack + report). The poll response carries
 Battery caps: hold only while hot, app-side 90 s re-arm + 30 min continuous cap.
 Older apps never send `wait` and are answered immediately, exactly as before.
 
-## `unlock_minutes` semantics (spec-008)
+## Timed-unlock duration picker (spec-010)
 
-The dashboard Settings field **Unlock window (min)** is the single source for
-the timed-unlock window. The dashboard's timed-unlock button derives its
-label, confirm text, command payload and confirmation toast from it via
-`minsFor()`: clamp 1–480 min (the server's command range), 0/invalid → 15.
-The value also propagates to the phone in the poll config, where the app's
-own PIN unlock uses it (0 = until period end on the phone). Every app since
-v1.3 applies remote `minutes` 1–480, so this is worker-only. Cosmetic gap:
-the phone's unlock-duration spinner labels non-preset values (e.g. 25) as the
-first preset while applying the real value — deferred app-side.
+The Settings field **Unlock window (min)** is **gone from the UI**. The
+duration is now picked at the point of use: tapping **⏱ Timed unlock** on a
+locked device card opens a glass picker with chips 15/30/60/120 min plus a
+custom field (1–480, invalid → 15). The last confirmed choice is remembered
+per device in `localStorage["unlockMin:<id>"]`; the seed chain is
+remembered → saved `unlock_minutes` setting (`minsFor()`, clamp 1–480) → 15.
+The command still carries explicit `payload.minutes`, so old and new apps
+alike apply the picked window. `unlock_minutes` remains a valid config key
+(app-side default + API compatibility); it is simply no longer edited from
+the dashboard.
+
+## `/api/child/history` (spec-010)
+
+`GET /api/child/history?days=7&tz=<offsetMinutes>` (device bearer token)
+returns `{ok, days:[{day, used_bytes}]}` — one row per **local day**
+(epoch-day numbers computed with the device's tz offset, so day boundaries
+match the phone). `used_bytes` is the day's last report minus the last
+observed report before it, clamped ≥ 0 (a counter reset reads as 0, never
+negative; usage across an offline gap lands on the first observed day after
+the gap). `null` = data exists but no baseline at all (first ever report);
+`0` = no data that day. `days` clamps 1–14, `tz` clamps ±1440. The math
+lives in the pure function `bucketDaily()` (unit-tested in
+`scripts/verify_spec010.js`). Called by the app's Usage tab only —
+purely cosmetic, never enforcement-relevant.
+
+## `unlock_minutes` semantics (spec-008 → amended by spec-010)
+
+The config key survives as the app-side default (the phone's own PIN unlock
+uses it; 0 = until period end on the phone) and as the picker's fallback
+seed, but the dashboard no longer shows an Unlock window input — see the
+picker section above. Every app since v1.3 applies remote `minutes` 1–480.
 
 ## Known pending work
 

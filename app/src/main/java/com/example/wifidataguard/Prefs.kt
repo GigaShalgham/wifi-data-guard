@@ -118,4 +118,12 @@ object Prefs {
 
     fun pollIntervalSec(c: Context): Int = sp(c).getInt("poll_interval_sec", 30)
     fun setPollIntervalSec(c: Context, v: Int) = sp(c).edit().putInt("poll_interval_sec", v).apply()
+
+    // ---------- history cache (spec-010; REAL clock, cosmetic only) ----------
+
+    fun historyCache(c: Context): String = sp(c).getString("history_cache", "[]") ?: "[]"
+    fun setHistoryCache(c: Context, v: String) = sp(c).edit().putString("history_cache", v).apply()
+
+    fun historyCacheAt(c: Context): Long = sp(c).getLong("history_cache_at", 0L)
+    fun setHistoryCacheAt(c: Context, v: Long) = sp(c).edit().putLong("history_cache_at", v).apply()
 }

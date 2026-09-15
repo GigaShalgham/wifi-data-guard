@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aurora background (spec-010): deeper, richer than bg_glow — three
+     layered radial glows (indigo / cyan / violet) over the deep-navy base.
+     Serves as the window background behind the translucent glass cards. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="@color/g_bg_top"
+                android:endColor="@color/g_bg"
+                android:type="linear"/>
+        </shape>
+    </item>
+    <item
+        android:gravity="top|start"
+        android:width="520dp"
+        android:height="520dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="270dp"
+                android:startColor="#735869E8"
+                android:endColor="#005869E8"/>
+        </shape>
+    </item>
+    <item
+        android:gravity="top|end"
+        android:width="460dp"
+        android:height="460dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="240dp"
+                android:startColor="#5C22D3EE"
+                android:endColor="#0022D3EE"/>
+        </shape>
+    </item>
+    <item
+        android:gravity="bottom|center_horizontal"
+        android:width="560dp"
+        android:height="560dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="290dp"
+                android:startColor="#4A8B5CF6"
+                android:endColor="#008B5CF6"/>
+        </shape>
+    </item>
+</layer-list>

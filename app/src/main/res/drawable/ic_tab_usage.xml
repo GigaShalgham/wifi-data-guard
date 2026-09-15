@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tab icon: bar chart (Usage). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5,13h3v6H5z"/>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M10.5,7h3v12h-3z"/>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M16,3h3v16h-3z"/>
+</vector>

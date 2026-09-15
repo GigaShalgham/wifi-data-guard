@@ -22,8 +22,8 @@ android {
         applicationId = "com.example.wifidataguard"
         minSdk = 26
         targetSdk = 33
-        versionCode = 10
-        versionName = "1.3.6"
+        versionCode = 11
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
