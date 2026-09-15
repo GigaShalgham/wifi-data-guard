@@ -103,9 +103,21 @@ the hot window to `now + 120 s` (fast ack + report). The poll response carries
 Battery caps: hold only while hot, app-side 90 s re-arm + 30 min continuous cap.
 Older apps never send `wait` and are answered immediately, exactly as before.
 
+## `unlock_minutes` semantics (spec-008)
+
+The dashboard Settings field **Unlock window (min)** is the single source for
+the timed-unlock window. The dashboard's timed-unlock button derives its
+label, confirm text, command payload and confirmation toast from it via
+`minsFor()`: clamp 1–480 min (the server's command range), 0/invalid → 15.
+The value also propagates to the phone in the poll config, where the app's
+own PIN unlock uses it (0 = until period end on the phone). Every app since
+v1.3 applies remote `minutes` 1–480, so this is worker-only. Cosmetic gap:
+the phone's unlock-duration spinner labels non-preset values (e.g. 25) as the
+first preset while applying the real value — deferred app-side.
+
 ## Known pending work
 
 - `/demo` simulator is still live — removal is roadmap spec
-  `007-cloud-security-hardening` (see `specs/001-project-state-backfill/`).
+  `009-cloud-security-hardening` (see `specs/001-project-state-backfill/`).
 - Email delivery for magic links is not configured; the bootstrap one-time
   link flow (`BOOTSTRAP_EMAIL`) is the active sign-in path.

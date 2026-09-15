@@ -30,7 +30,7 @@ var I18N = {
     grace: "grace",
     normal: "ok",
     lockNow: "Lock now",
-    unlock15: "Unlock 15m",
+    unlockFor: "Unlock %dm",
     unlockFull: "Unlock",
     confirmUnlockFull: "Fully unlock this device? Internet stays open until you lock it again (or its data limit is reached). Device app v1.3.3+ required \u2014 older apps treat this as a 15-minute window.",
     pendingLock: "Locking\u2026",
@@ -39,12 +39,16 @@ var I18N = {
     oldApp: "old phone app \u2014 full unlock needs v1.3.3+",
     fastLink: "fast",
     toastLocked: "\u2713 Locked \u2014 confirmed by device",
-    toastTimed: "\u2713 Unlocked for 15 minutes",
+    toastTimedFor: "\u2713 Unlocked for %d minutes",
     toastOldApp: "\u2713 Unlocked (15 min) \u2014 old phone app",
     toastUnlocked: "\u2713 Unlocked \u2014 confirmed by device",
     settings: "Settings",
     save: "Save",
-    saved: "Saved — the device picks it up on its next poll.",
+    savedSyncing: "Saved \u2014 syncing to device\u2026",
+    saveFailed: "Save failed \u2014 try again.",
+    settingsSync: "Settings \u2192 device\u2026",
+    toastSettings: "\u2713 Settings applied \u2014 confirmed by device",
+    appliedOnDevice: "\u2713 Applied on device.",
     revoke: "Unpair device",
     revokeConfirm: "Unpair this device? The app on it will return to local-only mode.",
     revokeConfirmLocked: "⚠️ This device is LOCKED right now. If you unpair it, it STAYS locked and you can NOT unlock it remotely anymore — only the parent PIN on the device itself can unlock it. Unpair anyway?",
@@ -62,7 +66,7 @@ var I18N = {
     errGeneric: "Something went wrong. Try again.",
     errAuth: "Session expired — please sign in again.",
     confirmLock: "Lock internet on this device now?",
-    confirmUnlock: "Grant a 15-minute unlock window?",
+    confirmUnlockFor: "Grant a %d-minute unlock window?",
     cmds: "pending commands",
     loaded: "loaded"
   },
@@ -91,7 +95,7 @@ var I18N = {
     grace: "مهلت",
     normal: "سالم",
     lockNow: "قفل فرمان",
-    unlock15: "باز ۱۵ دقیقه‌ای",
+    unlockFor: "باز %d دقیقه‌ای",
     unlockFull: "باز کردن قفل",
     confirmUnlockFull: "این دستگاه کاملاً باز شود؟ اینترنت تا قفل بعدی (یا رسیدن به حد مصرف) باز می‌ماند. نیازمند اپ نسخهٔ ۱.۳.۳+ — نسخه‌های قدیمی‌تر آن را پنجرهٔ ۱۵ دقیقه‌ای می‌بینند.",
     pendingLock: "در حال قفل…",
@@ -100,12 +104,16 @@ var I18N = {
     oldApp: "برنامهٔ قدیمی — بازکردن کامل نیاز به نسخهٔ ۱.۳.۳+ دارد",
     fastLink: "سریع",
     toastLocked: "✓ قفل شد — تأیید توسط دستگاه",
-    toastTimed: "✓ باز شد برای ۱۵ دقیقه",
+    toastTimedFor: "✓ باز شد برای %d دقیقه",
     toastOldApp: "✓ باز شد (۱۵ دقیقه) — برنامهٔ گوشی قدیمی است",
     toastUnlocked: "✓ باز شد — تأیید توسط دستگاه",
     settings: "تنظیمات",
     save: "ذخیره",
-    saved: "ذخیره شد — در poll بعدی اعمال می‌شود.",
+    savedSyncing: "ذخیره شد — در حال رفتن به دستگاه…",
+    saveFailed: "ذخیره نشد — دوباره تلاش کن.",
+    settingsSync: "تنظیمات → دستگاه…",
+    toastSettings: "✓ تنظیمات اعمال شد — تأیید توسط دستگاه",
+    appliedOnDevice: "✓ روی دستگاه اعمال شد.",
     revoke: "جدا کردن دستگاه",
     revokeConfirm: "این دستگاه جدا شود؟ اپ آن به حالت محلی برمی‌گردد.",
     revokeConfirmLocked: "⚠️ این دستگاه همین حالا قفل است. اگر جدا‌اش کنی، قفل می‌ماند و دیگر هیچ راهی برای بازکردنش از راه دور نداری — فقط با رمز والد روی خود دستگاه باز می‌شود. به‌هرحال جدا کنیم؟",
@@ -123,7 +131,7 @@ var I18N = {
     errGeneric: "خطایی رخ داد. دوباره تلاش کن.",
     errAuth: "سشن منقضی شد — دوباره وارد شو.",
     confirmLock: "اینترنت این دستگاه همین حالا قفل شود؟",
-    confirmUnlock: "پنجره باز ۱۵ دقیقه‌ای داده شود؟",
+    confirmUnlockFor: "پنجره باز %d دقیقه‌ای داده شود؟",
     cmds: "فرمان در انتظار",
     loaded: "بارگذاری شد"
   }
@@ -142,6 +150,18 @@ function esc(s){
   return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
     return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[c];
   });
+}
+
+// spec-008 FR-005: unlock window from SAVED settings — clamp to the
+// server's command range (1..480); 0/invalid falls back to 15
+function minsFor(s){
+  var m = Number(s && s.unlock_minutes);
+  if (!(m >= 1)) return 15;
+  return Math.max(1, Math.min(480, Math.round(m)));
+}
+// spec-008 FR-006: Persian digits for runtime %d interpolation in FA
+function faNum(n){
+  return String(n).replace(/[0-9]/g, function(d){ return "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9".charAt(Number(d)); });
 }
 
 function api(path, opts){
@@ -241,6 +261,16 @@ var pend = {};
 var PEND_TTL_MS = 90 * 1000;
 function savePend(){ try { sessionStorage.setItem("dgPend", JSON.stringify(pend)); } catch (e) {} }
 try { pend = JSON.parse(sessionStorage.getItem("dgPend") || "{}") || {}; } catch (e) { pend = {}; }
+
+// spec-008 FR-001: per-device open-panel settings draft. While a Settings
+// panel is open it renders from this draft (initialized from server
+// settings at open time, updated by every input), so the 10 s heartbeat
+// and the post-command refresh bursts never clobber in-progress edits.
+var cfgDraft = {};
+// spec-008 FR-004: settings-sync tracking — a save counts as applied
+// only when the device's own poll drains the config command from the
+// queue.
+var cfgSync = {};
 
 function pendFor(d){
   var p = pend[d.id];
@@ -347,10 +377,34 @@ function updateDynamic(){
   var devs = me.devices || [];
   document.getElementById("devCount").textContent = "(" + devs.length + ")";
   document.getElementById("noDev").className = devs.length ? "hidden" : "card sub";
+  // spec-008: prune drafts/syncs for devices that left the account
+  var alive = {};
+  for (var i0 = 0; i0 < devs.length; i0++) alive[devs[i0].id] = true;
+  for (var k in cfgDraft) if (!alive[k]) delete cfgDraft[k];
+  for (var k2 in cfgSync) if (!alive[k2]) delete cfgSync[k2];
+  // spec-008 FR-001: a rebuild must not eat an in-progress edit —
+  // remember the focused settings input AND the save-status message,
+  // then restore both after the re-render
+  var ae = document.activeElement;
+  var refocus = (ae && ae.id && /^cfg-[a-z]+[0-9]+$/.test(ae.id)) ? ae.id : null;
+  var msgKeep = {};
+  var msgEls = document.querySelectorAll("[id^=cfgmsg]");
+  for (var mi = 0; mi < msgEls.length; mi++) msgKeep[msgEls[mi].id] = { text: msgEls[mi].textContent, color: msgEls[mi].style.color };
   var h = "";
   for (var i = 0; i < devs.length; i++) h += deviceCard(devs[i]);
   list.innerHTML = h;
   for (var j = 0; j < devs.length; j++) wireDevice(devs[j]);
+  if (refocus) {
+    var el = document.getElementById(refocus);
+    if (el) { try { el.focus(); } catch (e) {} }
+  }
+  for (var mk in msgKeep) {
+    var mel = document.getElementById(mk);
+    if (mel && msgKeep[mk] && msgKeep[mk].text) {
+      mel.textContent = msgKeep[mk].text;
+      mel.style.color = msgKeep[mk].color;
+    }
+  }
   document.getElementById("tick").textContent = new Date().toLocaleTimeString();
 }
 
@@ -376,7 +430,9 @@ function deviceCard(d){
         ? '<span class="badge grace pend">' + esc(p.type === "lock" ? t("pendingLock") : t("pendingUnlock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
         : ((d.pending_types && (d.pending_types.unlock || d.pending_types.lock))
           ? '<span class="badge grace">' + esc(d.pending_types.unlock ? t("pendingUnlock") : t("pendingLock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
-          : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : ''))) +
+          : ((d.pending_types && d.pending_types.config)
+            ? '<span class="badge grace">' + esc(t("settingsSync")) + '</span>'
+            : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : '')))) +
       (appOld(rep) ? '<span class="badge grace">' + esc(t("oldApp")) + '</span>' : '') +
       (d.fast ? '<span class="badge fastchip">\u26a1 ' + esc(t("fastLink")) + '</span>' : '') +
     '</div>' +
@@ -390,7 +446,7 @@ function deviceCard(d){
     '<div class="row" style="margin-top:12px">' +
       (lockedNow
         ? '<button class="ok small" data-unlock-full="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFull")) + '</button>' +
-          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlock15")) + '</button>'
+          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFor").replace("%d", lang === "fa" ? faNum(minsFor(d.settings)) : String(minsFor(d.settings)))) + '</button>'
         : '<button class="danger small" data-lock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("lockNow")) + '</button>') +
       '<button class="ghost small" data-settings="' + d.id + '">' + esc(t("settings")) + '</button>' +
     '</div>' +
@@ -404,17 +460,31 @@ function deviceCard(d){
 }
 
 function settingsPanel(d){
-  var s = d.settings;
+  // spec-008 FR-001: an open panel renders from the user's draft, created
+  // from server settings when the panel opens and updated on every input —
+  // the 10 s heartbeat and post-command refresh bursts re-render the card
+  // AROUND the draft and can never revert an in-progress edit
+  var dr = cfgDraft[d.id];
+  if (!dr) {
+    var s = d.settings || {};
+    dr = cfgDraft[d.id] = {
+      limit: String(s.limit_mb == null ? "" : s.limit_mb),
+      period: s.period === "monthly" ? "monthly" : "daily",
+      unlock: String(s.unlock_minutes == null ? "0" : s.unlock_minutes),
+      tol: String(s.offline_tolerance_min == null ? "10" : s.offline_tolerance_min),
+      hard: s.hard_mode ? "1" : "0"
+    };
+  }
   return '<div class="settings"><div class="grid">' +
-    '<div><label>' + esc(t("limitMb")) + '</label><input type="number" id="cfg-limit' + d.id + '" value="' + esc(s.limit_mb) + '" min="1"></div>' +
+    '<div><label>' + esc(t("limitMb")) + '</label><input type="number" id="cfg-limit' + d.id + '" value="' + esc(dr.limit) + '" min="1"></div>' +
     '<div><label>' + esc(t("period")) + '</label><select id="cfg-period' + d.id + '">' +
-      '<option value="daily"' + (s.period !== "monthly" ? " selected" : "") + '>' + esc(t("daily")) + '</option>' +
-      '<option value="monthly"' + (s.period === "monthly" ? " selected" : "") + '>' + esc(t("monthly")) + '</option></select></div>' +
-    '<div><label>' + esc(t("unlockMin")) + '</label><input type="number" id="cfg-unlock' + d.id + '" value="' + esc(s.unlock_minutes) + '" min="0"></div>' +
-    '<div><label>' + esc(t("offlineTol")) + '</label><input type="number" id="cfg-tol' + d.id + '" value="' + esc(s.offline_tolerance_min) + '" min="1"></div>' +
+      '<option value="daily"' + (dr.period !== "monthly" ? " selected" : "") + '>' + esc(t("daily")) + '</option>' +
+      '<option value="monthly"' + (dr.period === "monthly" ? " selected" : "") + '>' + esc(t("monthly")) + '</option></select></div>' +
+    '<div><label>' + esc(t("unlockMin")) + '</label><input type="number" id="cfg-unlock' + d.id + '" value="' + esc(dr.unlock) + '" min="0"></div>' +
+    '<div><label>' + esc(t("offlineTol")) + '</label><input type="number" id="cfg-tol' + d.id + '" value="' + esc(dr.tol) + '" min="1"></div>' +
     '<div><label>' + esc(t("hardMode")) + '</label><select id="cfg-hard' + d.id + '">' +
-      '<option value="0"' + (!s.hard_mode ? " selected" : "") + '>' + esc(t("normal")) + '</option>' +
-      '<option value="1"' + (s.hard_mode ? " selected" : "") + '>' + esc(t("locked")) + '</option></select></div>' +
+      '<option value="0"' + (dr.hard !== "1" ? " selected" : "") + '>' + esc(t("normal")) + '</option>' +
+      '<option value="1"' + (dr.hard === "1" ? " selected" : "") + '>' + esc(t("locked")) + '</option></select></div>' +
   '</div><div class="row" style="margin-top:12px"><button class="small" data-save="' + d.id + '">' + esc(t("save")) + '</button><span class="sub" id="cfgmsg' + d.id + '"></span></div></div>';
 }
 
@@ -430,11 +500,16 @@ function wireDevice(d){
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(trackRefresh);
   };
   if (unlockBtn) unlockBtn.onclick = function(){
-    if (!confirm(t("confirmUnlock"))) return;
-    pend[d.id] = { type: "unlock", timed: true, until: Date.now() + PEND_TTL_MS };
+    // spec-008 FR-005/006: the timed window comes from the SAVED unlock
+    // setting — label, confirm text, command and toast all agree on it
+    // (unsaved panel edits command nothing)
+    var mins = minsFor(d.settings);
+    var nums = lang === "fa" ? faNum(mins) : String(mins);
+    if (!confirm(t("confirmUnlockFor").replace("%d", nums))) return;
+    pend[d.id] = { type: "unlock", timed: true, mins: mins, until: Date.now() + PEND_TTL_MS };
     savePend();
     updateDynamic();
-    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: 15 } } }).then(trackRefresh);
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: mins } } }).then(trackRefresh);
   };
   if (fullBtn) fullBtn.onclick = function(){
     if (!confirm(t("confirmUnlockFull"))) return;
@@ -445,6 +520,9 @@ function wireDevice(d){
   };
   if (setBtn) setBtn.onclick = function(){
     openSettings[d.id] = !openSettings[d.id];
+    // spec-008 FR-002: closing drops the draft — reopening starts
+    // fresh from current server settings
+    if (!openSettings[d.id]) delete cfgDraft[d.id];
     updateDynamic();
   };
   if (revBtn) revBtn.onclick = function(){
@@ -455,20 +533,49 @@ function wireDevice(d){
     if (!confirm(msg)) return;
     api("/api/devices/" + d.id + "/revoke", { method: "POST" }).then(function(){ refresh(true); });
   };
-  if (saveBtn) saveBtn.onclick = function(){
-    var payload = {
-      limit_mb: parseInt(document.getElementById("cfg-limit" + d.id).value, 10),
-      period: document.getElementById("cfg-period" + d.id).value,
-      unlock_minutes: parseInt(document.getElementById("cfg-unlock" + d.id).value, 10),
-      offline_tolerance_min: parseInt(document.getElementById("cfg-tol" + d.id).value, 10),
-      hard_mode: document.getElementById("cfg-hard" + d.id).value === "1"
+  // spec-008 FR-001: every keystroke/select lands in the draft, so a
+  // re-render between typing and saving reproduces exactly what the
+  // user sees
+  function bindCfg(field, id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    var upd = function(){
+      var dr = cfgDraft[d.id];
+      if (dr) dr[field] = el.value;
     };
+    el.oninput = upd;
+    el.onchange = upd;
+  }
+  bindCfg("limit", "cfg-limit" + d.id);
+  bindCfg("period", "cfg-period" + d.id);
+  bindCfg("unlock", "cfg-unlock" + d.id);
+  bindCfg("tol", "cfg-tol" + d.id);
+  bindCfg("hard", "cfg-hard" + d.id);
+  if (saveBtn) saveBtn.onclick = function(){
+    var dr = cfgDraft[d.id] || {};
+    var payload = { period: dr.period === "monthly" ? "monthly" : "daily", hard_mode: dr.hard === "1" };
+    var nLim = parseInt(dr.limit, 10); if (isFinite(nLim)) payload.limit_mb = nLim;
+    var nUn = parseInt(dr.unlock, 10); if (isFinite(nUn)) payload.unlock_minutes = nUn;
+    var nTol = parseInt(dr.tol, 10); if (isFinite(nTol)) payload.offline_tolerance_min = nTol;
+    var m = document.getElementById("cfgmsg" + d.id);
+    saveBtn.disabled = true;   // spec-008: kill the double-save race
+    if (m) { m.style.color = ""; m.textContent = "\u2026"; }
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "config", payload: payload } })
-      .then(function(){
-        var m = document.getElementById("cfgmsg" + d.id);
-        if (m) m.textContent = t("saved");
+      .then(function(res){
+        // spec-008 FR-003: only a real {ok:true} counts as saved — a
+        // 4xx/5xx body must never render "Saved"
+        if (!res || res.ok !== true) {
+          if (m) { m.style.color = "#ff9d94"; m.textContent = t("saveFailed"); }
+          return;
+        }
+        if (m) { m.style.color = ""; m.textContent = t("savedSyncing"); }
+        cfgSync[d.id] = { until: Date.now() + 90 * 1000 };
         trackRefresh();
-      });
+      })
+      .catch(function(){
+        if (m) { m.style.color = "#ff9d94"; m.textContent = t("saveFailed"); }
+      })
+      .then(function(){ saveBtn.disabled = false; });
   };
 }
 
@@ -520,11 +627,27 @@ function toastConfirmed(){
     if (!p || !pendConfirmed(p, d.report)) continue;
     var msg, kind;
     if (p.type === "lock") { msg = t("toastLocked"); kind = "bad"; }
-    else if (p.timed)      { msg = t("toastTimed"); kind = "ok"; }
+    else if (p.timed)      { msg = t("toastTimedFor").replace("%d", lang === "fa" ? faNum(p.mins || 15) : String(p.mins || 15)); kind = "ok"; }
     else if (p.oldApp)     { msg = t("toastOldApp"); kind = "ok"; }
     else                   { msg = t("toastUnlocked"); kind = "ok"; }
     toast(msg, kind);
     chime(p.type === "lock" ? "lock" : "unlock");
+  }
+  // spec-008 FR-004: a tracked settings save is confirmed only when the
+  // device's own poll drains the config command from the server queue
+  // (Art. VIII — never the optimistic POST response)
+  for (var j2 = 0; j2 < devs.length; j2++) {
+    var dv = devs[j2];
+    var tr = cfgSync[dv.id];
+    if (!tr) continue;
+    if (Date.now() > tr.until) { delete cfgSync[dv.id]; continue; }
+    if (!(dv.pending_types && dv.pending_types.config)) {
+      delete cfgSync[dv.id];
+      toast(t("toastSettings"), "ok");
+      chime("unlock");
+      var mel = document.getElementById("cfgmsg" + dv.id);
+      if (mel) { mel.style.color = ""; mel.textContent = t("appliedOnDevice"); }
+    }
   }
 }
 var toastBox = null;
@@ -610,7 +733,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v5";
+var SW_JS = `const CACHE = "dg-v6";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
