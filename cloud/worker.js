@@ -36,6 +36,7 @@ var I18N = {
     pendingLock: "Locking\u2026",
     pendingUnlock: "Unlocking\u2026",
     waitDevice: "waiting for device (up to ~1 min)",
+    oldApp: "old phone app \u2014 full unlock needs v1.3.3+",
     settings: "Settings",
     save: "Save",
     saved: "Saved — the device picks it up on its next poll.",
@@ -91,6 +92,7 @@ var I18N = {
     pendingLock: "در حال قفل…",
     pendingUnlock: "در حال باز کردن…",
     waitDevice: "در انتظار دستگاه (تا ~۱ دقیقه)",
+    oldApp: "برنامهٔ قدیمی — بازکردن کامل نیاز به نسخهٔ ۱.۳.۳+ دارد",
     settings: "تنظیمات",
     save: "ذخیره",
     saved: "ذخیره شد — در poll بعدی اعمال می‌شود.",
@@ -160,6 +162,17 @@ function relTime(ts){
   if (d < 86400000) return Math.floor(d/3600000) + " " + t("hAgo");
   return Math.floor(d/86400000) + " " + t("dAgo");
 }
+// spec-004 FR-002: apps before v1.3.3 silently turn a full unlock into a
+// 15-minute grace window — surface that on the card instead of letting the
+// parent discover it when the phone re-locks
+function appOld(rep){
+  if (!rep || !rep.app_version) return false;
+  var parts = String(rep.app_version).split("-")[0].split(".");
+  var v0 = Number(parts[0]), v1 = Number(parts[1]), v2 = Number(parts[2]);
+  if (isNaN(v0) || isNaN(v1)) return false;
+  if (parts.length < 3 || isNaN(v2)) v2 = 0;
+  return v0 < 1 || (v0 === 1 && v1 < 3) || (v0 === 1 && v1 === 3 && v2 < 3);
+}
 function deviceStatus(rep){
   if (!rep) return { cls: "", label: "—", dot: true };
   if (rep.latched) return { cls: "locked", label: t("locked") };
@@ -212,26 +225,34 @@ var me = null;
 var openSettings = {};
 var pairTimer = null;
 // spec-003: optimistic command state per device {type, timed, until}
+// spec-004 FR-001: pend survives a manual refresh (sessionStorage), so a
+// reload mid-command no longer re-enables the buttons and invites a duplicate
 var pend = {};
 var PEND_TTL_MS = 90 * 1000;
+function savePend(){ try { sessionStorage.setItem("dgPend", JSON.stringify(pend)); } catch (e) {} }
+try { pend = JSON.parse(sessionStorage.getItem("dgPend") || "{}") || {}; } catch (e) { pend = {}; }
 
 function pendFor(d){
   var p = pend[d.id];
   if (!p) return null;
-  if (Date.now() > p.until) { delete pend[d.id]; return null; }
+  if (Date.now() > p.until) { delete pend[d.id]; savePend(); return null; }
   return p;
 }
 function pendConfirmed(p, rep){
   if (!rep) return false;
   if (p.type === "lock") return !!rep.latched;
   if (p.timed) return !!(rep.grace_until && rep.grace_until > Date.now());
+  // spec-004 FR-003: an app older than v1.3.3 turns a full unlock into a
+  // 15-minute grace window (the latch stays) — confirm when that window
+  // lands instead of freezing at "Unlocking…" for the full 90 s
+  if (p.oldApp) return !!(rep.grace_until && rep.grace_until > Date.now()) || !rep.latched;
   return !rep.latched;
 }
 function clearConfirmedPends(){
   var devs = (me && me.devices) || [];
   for (var i = 0; i < devs.length; i++) {
     var p = pend[devs[i].id];
-    if (p && pendConfirmed(p, devs[i].report)) delete pend[devs[i].id];
+    if (p && pendConfirmed(p, devs[i].report)) { delete pend[devs[i].id]; savePend(); }
   }
 }
 
@@ -338,7 +359,10 @@ function deviceCard(d){
       '</div>' +
       (p
         ? '<span class="badge grace">' + esc(p.type === "lock" ? t("pendingLock") : t("pendingUnlock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
-        : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : '')) +
+        : ((d.pending_types && (d.pending_types.unlock || d.pending_types.lock))
+          ? '<span class="badge grace">' + esc(d.pending_types.unlock ? t("pendingUnlock") : t("pendingLock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
+          : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : ''))) +
+      (appOld(rep) ? '<span class="badge grace">' + esc(t("oldApp")) + '</span>' : '') +
     '</div>' +
     (rep ? '<div class="bar"><div class="' + barCls.trim() + '" style="width:' + pct + '%"></div></div>' +
       '<div class="spread"><span>' + esc(t("usage")) + ': ' + fmtBytes(used) + " / " + fmtBytes(limit) +
@@ -385,18 +409,21 @@ function wireDevice(d){
   if (lockBtn) lockBtn.onclick = function(){
     if (!confirm(t("confirmLock"))) return;
     pend[d.id] = { type: "lock", until: Date.now() + PEND_TTL_MS };
+    savePend();
     updateDynamic();
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(trackRefresh);
   };
   if (unlockBtn) unlockBtn.onclick = function(){
     if (!confirm(t("confirmUnlock"))) return;
     pend[d.id] = { type: "unlock", timed: true, until: Date.now() + PEND_TTL_MS };
+    savePend();
     updateDynamic();
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: 15 } } }).then(trackRefresh);
   };
   if (fullBtn) fullBtn.onclick = function(){
     if (!confirm(t("confirmUnlockFull"))) return;
-    pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS };
+    pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS, oldApp: appOld(d.report) };
+    savePend();
     updateDynamic();
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { full: true } } }).then(trackRefresh);
   };
@@ -462,7 +489,7 @@ function loadAudit(){
 // spec-003 FR-005: the device confirms on its next poll (~30 s), so keep
 // pulling until the new state lands instead of one blind 700 ms refresh
 function trackRefresh(){
-  var delays = [1000, 5000, 15000, 30000, 45000, 60000];
+  var delays = [1000, 5000, 15000, 30000, 45000, 60000, 75000, 90000];
   for (var i = 0; i < delays.length; i++) setTimeout(refresh, delays[i]);
 }
 
@@ -497,7 +524,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v3";
+var SW_JS = `const CACHE = "dg-v4";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -1006,10 +1033,14 @@ async function handleMe(request, env, parent) {
     "SELECT id, name, created_at, last_seen_at, last_report_json, settings_json FROM devices WHERE parent_id = ? AND revoked = 0 ORDER BY id"
   ).bind(parent.id).all();
   const pendingCounts = await env.DB.prepare(
-    "SELECT device_id, COUNT(*) AS n FROM commands WHERE delivered_at IS NULL GROUP BY device_id"
+    "SELECT device_id, type, COUNT(*) AS n FROM commands WHERE delivered_at IS NULL GROUP BY device_id, type"
   ).all();
   const pending = {};
-  for (const r of pendingCounts.results || []) pending[r.device_id] = r.n;
+  const pendingTypes = {};
+  for (const r of pendingCounts.results || []) {
+    pending[r.device_id] = (pending[r.device_id] || 0) + r.n;
+    (pendingTypes[r.device_id] = pendingTypes[r.device_id] || {})[r.type] = r.n;
+  }
   return json({
     ok: true,
     parent: { email: parent.email },
@@ -1022,7 +1053,8 @@ async function handleMe(request, env, parent) {
       online: !!(d.last_seen_at && now() - d.last_seen_at < 9e4),
       settings: { ...DEFAULT_DEVICE_SETTINGS, ...JSON.parse(d.settings_json || "{}") },
       report: d.last_report_json ? JSON.parse(d.last_report_json) : null,
-      pending_commands: pending[d.id] || 0
+      pending_commands: pending[d.id] || 0,
+      pending_types: pendingTypes[d.id] || {},
     }))
   });
 }

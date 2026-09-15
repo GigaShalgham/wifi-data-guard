@@ -80,6 +80,17 @@ Every shipped APK is release-signed, versioned (`versionCode` monotonic),
 tagged in git, and published as a GitHub Release with notes. Test builds are
 pre-releases with `.test` applicationId so they install alongside production.
 
+### XI. App-Update Disclosure (NON-NEGOTIABLE)
+
+Every change delivered to the owner — spec, release note, or summary — MUST
+state explicitly whether the Android app requires updating (and which build:
+production vs QA `.test`), and whether the dashboard/Worker part is already
+live. "Worker-only" changes deploy live instantly with no APK; app-side
+behavior changes require a new signed release. The owner asked for this on
+2026-09-15 after discovering a fix that only half-worked because the phone
+still ran an old app version. The dashboard also surfaces stale phone apps
+in-product (old-app badge, spec-004).
+
 ## Maintenance
 
 Update this constitution via `/speckit-constitution` when principles evolve.

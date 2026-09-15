@@ -34,8 +34,8 @@ via `/speckit-specify`, not from memory.
 - **Source**: IN THIS REPO at `cloud/worker.js` since 2026-09-15 (spec-002) — recovered from the deployed bundle, validated byte-exact, deployable via `cloud/deploy.py`; never lose it again
 - **Endpoints**: pair (6-digit code), poll (auth via device token), dashboard (`/`, `/demo`), revoke
 - **Benchmark** (2026-09-15): poll p50 ≈ 42 ms / p95 ≈ 58 ms; pair p50 ≈ 515 ms
-- **⚠️ `/demo` simulator is still live** — must be removed before real production use (Roadmap item A, folded into 004 security hardening)
-- **⚠️ Bootstrap sign-in fallback is live** — no RESEND_API_KEY, so the one-time link for BOOTSTRAP_EMAIL is shown on screen; that email is exposed via public commit metadata → dashboard takeover chain. Verified NOT exploited (D1 audit 2026-09-15). Fix = user picks a secret alias email (config swap) and/or spec-004 removes/hardens the fallback
+- **⚠️ `/demo` simulator is still live** — must be removed before real production use (Roadmap item A, folded into 005 security hardening)
+- **⚠️ Bootstrap sign-in fallback is live** — no RESEND_API_KEY, so the one-time link for BOOTSTRAP_EMAIL is shown on screen; that email is exposed via public commit metadata → dashboard takeover chain. Verified NOT exploited (D1 audit 2026-09-15). Fix = user picks a secret alias email (config swap) and/or spec-005 removes/hardens the fallback
 
 ### Verified working (user device tests, v1.3-test1/2 rounds)
 - Pairing, config push, remote lock/unlock delivery (16–28 s typical, poll interval + jitter)
@@ -44,6 +44,7 @@ via `/speckit-specify`, not from memory.
 - Soft-lock VPN fallback announces itself (bilingual)
 - Safe unpair (v1.3.2): dashboard lock-aware revoke warning + separated Unpair button; unpaired-while-locked device relabels status and shows the parent-PIN notice
 - Real unlock + live dashboard (v1.3.3, deployed + app built): state-aware buttons, full-unlock command (clears cloud/offline latch; limit/clock degrade to timed window with notice), optimistic pending chips, 10 s + focus/visibility refresh, ~4 s confirmation poll — user device re-test pending
+- Pending truth + old-app honesty (spec-004, worker-only, deployed 2026-09-15): pending state survives manual refresh (sessionStorage); old phone apps (< v1.3.3) get a persistent amber badge and their full-unlock pending confirms on grace landing (no 90 s freeze); `/api/me` exposes queued command types (type-aware server chip); refresh burst to 90 s; SW dg-v4. **No app release required** — but the phone still needs the v1.3.3 APK installed for full unlock to truly clear the latch (Art. XI disclosure)
 
 ### Known limitations / accepted trade-offs
 - Config latency = poll interval (default ~30 s) + jitter — by design (battery), documented
@@ -55,9 +56,10 @@ via `/speckit-specify`, not from memory.
 
 | # | Spec | Why | Source |
 |---|------|-----|--------|
-| A | `004-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
-| B | `005-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
-| C | `006-e2e-verification-v1.3.3` | Device re-tests of v1.3.3-test4: full unlock (US1), live panel (US2), state-aware buttons (US3) + safe-unpair carry-over from v1.3.2-test3 | spec-003 + spec-002 |
+| A | `005-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
+| B | `006-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
+| C | `007-e2e-verification-v1.3.3` | Device re-tests of v1.3.3-test4 (AFTER installing it): full unlock (US1), live panel incl. refresh-mid-command (US2), state-aware buttons (US3), old-app badge gone + safe-unpair carry-over from v1.3.2-test3 | spec-003 + spec-004 + spec-002 |
+| ✓ | ~~`004-dashboard-pending-truth`~~ DONE (worker-only, 2026-09-15) | Pending state survives refresh; old-app badge + degraded confirm; server-truth pending types | user re-test of v1.3.3 ("refresh and repeat") |
 | ✓ | ~~`003-dashboard-live-unlock`~~ DONE (v1.3.3, 2026-09-15) | Real unlock + live dashboard | user bug report |
 | ✓ | ~~`002-safe-unpair`~~ DONE (v1.3.2, 2026-09-15) | Revoked-while-locked trap: warning, separation, honest relabel, PIN notice, cloud source in repo | user bug report |
 

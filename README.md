@@ -186,12 +186,19 @@ they change; local tweaks keep working in between. Remote locks survive the
 daily rollover, and revoking the device from the dashboard returns the phone to
 local-only mode on the next poll.
 
-**Live dashboard (v1.3.3).** Buttons match the device's reported state (a
+**Live dashboard (v1.3.3 + spec-004).** Buttons match the device's reported state (a
 locked device shows unlock actions, an unlocked one shows Lock), every command
 shows an immediate "Locking…/Unlocking… — waiting for device" state, and the
 panel refreshes itself every 10 s plus whenever the tab becomes visible — no
 manual refresh needed. The app confirms each command with an extra poll ~4 s
-after applying it, so the badge settles in seconds.
+after applying it, so the badge settles in seconds. The waiting state now
+**survives a manual page refresh** (and shows from server truth in any other
+tab), the post-command refresh burst runs through 90 s, and a phone still
+running an app older than v1.3.3 shows a persistent amber "old phone app —
+full unlock needs v1.3.3+" badge — apps before v1.3.3 quietly turn a full
+unlock into a 15-minute window, so the badge says so instead of letting the
+phone surprise you by re-locking. When the badge disappears (within ~30 s of
+updating the app), the update has landed.
 
 **Fail-closed, not fail-open.** The whole design assumes the child might pull
 the plug on connectivity. If the device cannot reach the server for longer than
@@ -353,8 +360,15 @@ is excluded from backups.
 
 ## Version history
 
+> **App-update disclosure (Constitution Art. XI).** Every change states whether
+> the Android app needs updating: *worker-only* changes (like the dashboard)
+> are live immediately with no APK; app-side behavior changes ship as a new
+> signed release. Check the badge on the device card — if it says "old phone
+> app", install the latest release.
+
 | Version | Highlights |
 |---|---|
+| dashboard spec-004 (no APK needed) | Pending truth + old-app honesty: the "waiting for device" state survives a manual refresh (no more re-tapping after F5); in-flight commands are visible from server truth in any tab; old phone apps (< v1.3.3) get a persistent "old phone app — full unlock needs v1.3.3+" badge and their full-unlock wait ends when the 15-minute window lands instead of freezing |
 | [v1.3.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.3) | Real unlock + live dashboard (spec-003): full unlock command clears the cloud lock until the next lock (limit/clock locks degrade honestly to a timed window); state-aware buttons; instant "waiting for device" feedback on every command; 10 s auto-refresh + refresh-on-focus; app confirms commands ~4 s after applying them |
 | [v1.3.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.2) | Safe unpair: dashboard warns before unpairing a LOCKED device (bilingual) and the Unpair button is separated from Lock/Unlock; a device unpaired while locked keeps the lock (fail-closed) but relabels its status and shows a parent-PIN recovery notice; cloud Worker source now lives in `cloud/` |
 | [v1.3.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3-test2) | Hard-lock control-channel survival (VPN tunnel exempts the guard app: remote unlock + live reports during a lock), honest soft-lock fallback notification |
