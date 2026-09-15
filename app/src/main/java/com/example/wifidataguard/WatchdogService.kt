@@ -51,6 +51,36 @@ class WatchdogService : Service() {
         fun restoreLatched(c: Context): Boolean =
             c.getSharedPreferences("guard_prefs", Context.MODE_PRIVATE)
                 .getBoolean("latched", false)
+
+        /**
+         * Spec-002 (US2): the dashboard unpaired this device while it was
+         * locked. The latch is kept (fail-closed), but the user must be told
+         * the truth: the parent link is gone, remote unlock is impossible,
+         * and the parent PIN on this device is the way out. Runs on any
+         * thread (called from the CloudLink poll executor).
+         */
+        fun notifyRevokedWhileLocked(c: Context) {
+            val fa = Prefs.lang(c) == "fa"
+            val title = if (fa) "\u26a0\ufe0f \u062f\u0633\u062a\u06af\u0627\u0647 \u062c\u062f\u0627 \u0634\u062f \u2014 \u0642\u0641\u0644 \u0628\u0627\u0642\u06cc \u0645\u0627\u0646\u062f"
+                        else "\u26a0\ufe0f Device unpaired \u2014 still locked"
+            val text = if (fa)
+                "\u0627\u062a\u0635\u0627\u0644 \u0627\u0628\u0631\u06cc \u062d\u0630\u0641 \u0634\u062f\u061b \u062f\u06cc\u06af\u0631 \u0646\u0645\u06cc\u200c\u062a\u0648\u0627\u0646 \u0627\u0632 \u0631\u0627\u0647 \u062f\u0648\u0631 \u0628\u0627\u0632\u0634 \u06a9\u0631\u062f. " +
+                "\u0628\u0631\u0627\u06cc \u0628\u0627\u0632\u06a9\u0631\u062f\u0646\u060c \u062f\u06a9\u0645\u0647\u0654 \u00ab\u0628\u0627\u0632\u06a9\u0631\u062f\u0646\u00bb \u0631\u0627 \u062f\u0631 \u0647\u0645\u06cc\u0646 \u0627\u067e \u0628\u0632\u0646 \u0648 \u0631\u0645\u0632 \u0648\u0627\u0644\u062f \u0631\u0627 \u0648\u0627\u0631\u062f \u06a9\u0646 " +
+                "(\u06cc\u0627 \u0645\u062d\u0627\u0641\u0638 \u0631\u0627 \u062e\u0627\u0645\u0648\u0634 \u06a9\u0646)."
+            else
+                "The cloud link was removed, so remote unlock is no longer possible. " +
+                "To unlock: tap Unlock in this app and enter the parent PIN " +
+                "(or turn monitoring off)."
+            val open = PendingIntent.getActivity(c, 0,
+                Intent(c, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            val banner = Notification.Builder(c, "alerts")
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentTitle(title).setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setAutoCancel(true).setContentIntent(open).build()
+            c.getSystemService(NotificationManager::class.java).notify(6, banner)
+        }
     }
 
     private lateinit var handler: Handler
@@ -232,6 +262,8 @@ class WatchdogService : Service() {
                 "cloud"   -> if (fa) "قفل از راه دور (والد)" else "Locked by parent"
                 "offline" -> if (fa) "بدون ارتباط ابر — قفل امنیتی" else "Cloud unreachable - fail-closed"
                 "clock"   -> if (fa) "ساعت دستکاری شد — قفل" else "Clock tampered - locked"
+                "unpaired"-> if (fa) "قفل باقی مانده — دستگاه جدا شد (رمز والد باز می‌کند)"
+                            else "Locked — device unpaired (parent PIN unlocks)"
                 else      -> if (fa) "به حد رسید (${humanize(used)} مصرف)"
                              else "LIMIT REACHED (${humanize(used)} used)"
             }

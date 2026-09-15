@@ -43,6 +43,14 @@ object CloudLink {
     fun paired(c: Context): Boolean = Prefs.cloudToken(c).isNotEmpty()
 
     fun unpair(c: Context, fromServer: Boolean = false) {
+        // Spec-002 (US2): if the dashboard revoked us while we are latched for a
+        // cloud-origin reason, the latch STAYS (fail-closed — revocation is not
+        // an unlock), but the reason is relabeled so the status line stops
+        // claiming "Locked by parent", and the user gets a one-time notice
+        // explaining the parent-PIN escape hatch.
+        val wasLatched = WatchdogService.latched
+        val reason = Prefs.latchReason(c)
+        val cloudOrigin = reason == "cloud" || reason == "offline" || reason == "clock"
         Prefs.setCloudToken(c, "")
         Prefs.setCloudDeviceId(c, 0)
         Prefs.setCloudName(c, "")
@@ -50,8 +58,15 @@ object CloudLink {
         Prefs.setCloudServerTime(c, 0L)
         Prefs.setCloudApplied(c, "{}")
         pendingAcks.clear()
-        Logger.d(c, if (fromServer) "cloud: unpaired from dashboard -> local-only mode"
-        else "cloud: unpaired locally -> local-only mode")
+        if (fromServer && wasLatched && cloudOrigin) {
+            Prefs.setLatchReason(c, "unpaired")
+            WatchdogService.notifyRevokedWhileLocked(c)
+            Logger.d(c, "cloud: unpaired from dashboard while latched ($reason) " +
+                    "-> latch kept, reason=unpaired, PIN notice sent")
+        } else {
+            Logger.d(c, if (fromServer) "cloud: unpaired from dashboard -> local-only mode"
+            else "cloud: unpaired locally -> local-only mode")
+        }
     }
 
     // ------------------------------------------------------------ pairing
@@ -232,7 +247,7 @@ object CloudLink {
             readTimeout = 15_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("User-Agent", "DataGuard-Android/1.3.1")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.3.2")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
         }
         try {

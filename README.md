@@ -260,6 +260,22 @@ Stack: Kotlin (built-in Kotlin support in AGP 9), Gradle 9.5 wrapper, minSdk 26,
 targetSdk 33, compileSdk 37. Mirror-first Maven repositories with official
 `google()`/`mavenCentral()` fallbacks.
 
+## Cloud Worker (deploying from source)
+
+The optional cloud backend is a Cloudflare Worker whose source lives in
+[`cloud/`](cloud/) (recovered from the deployed bundle on 2026-09-15 and kept
+in-repo ever since — see `cloud/README.md` for bindings and the API surface).
+
+```bash
+node --check cloud/worker.js        # syntax gate before every deploy
+python3 cloud/deploy.py --token-file /path/to/cf-token
+```
+
+The deploy script echoes the live bindings (D1 `DB`, KV `KV`,
+`BOOTSTRAP_EMAIL`) on upload, so a deploy can never drop them; it needs a
+Cloudflare API token with Workers Scripts:Edit. Post-deploy verification
+steps are listed in `cloud/README.md`.
+
 ## Development process (spec-driven)
 
 All work on this repository — features, bugfixes, releases — follows
@@ -297,6 +313,12 @@ app/src/main/java/com/example/wifidataguard/
 ├── Prefs.kt             # Persistent state: limits, latch, PIN hash
 ├── CloudLink.kt         # Optional cloud bridge: pair, poll, ack, fail-closed
 └── Logger.kt            # Rolling on-device log (guard_log.txt)
+
+```
+cloud/                  # Cloudflare Worker source (parent dashboard)
+├── worker.js          # single-file ES module: dashboard JS + assets + API
+├── deploy.py          # REST-API deploy script (bindings echoed, no wrangler)
+└── README.md          # structure, bindings, deploy + verification guide
 ```
 
 ## Troubleshooting & FAQ
@@ -324,6 +346,7 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.2) | Safe unpair: dashboard warns before unpairing a LOCKED device (bilingual) and the Unpair button is separated from Lock/Unlock; a device unpaired while locked keeps the lock (fail-closed) but relabels its status and shows a parent-PIN recovery notice; cloud Worker source now lives in `cloud/` |
 | [v1.3.1](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3-test2) | Hard-lock control-channel survival (VPN tunnel exempts the guard app: remote unlock + live reports during a lock), honest soft-lock fallback notification |
 | [v1.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3) | CloudLink: optional cloud pairing, remote lock/unlock/config, ~30 s usage reports, fail-closed offline lock, clock-tamper defense, PIN-gated unpair |
 | [v1.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.2) | Ultra-debug pass: unlock re-arms, true rollover reset, soft-lock VPN fallback, PIN-gated hard mode / unlock duration, backup hardening, first signed release build |
