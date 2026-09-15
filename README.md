@@ -175,7 +175,10 @@ until the parent pairs the device; an unpaired app behaves exactly like v1.2.
 6-digit code valid for a short window. On the phone: ☁ button → enter the code →
 the device exchanges it for a long-lived token (64-hex) stored only in private
 preferences. From then on the watchdog thread polls the server roughly every
-30 seconds (with jitter) and applies whatever the parent commands.
+30 seconds (with jitter) — or **continuously while the parent's panel is
+open**: with app v1.3.4+ the server holds each poll open and answers the
+moment a command exists, so lock/unlock land in ~1–2 s (hot mode, spec-005;
+idle battery profile unchanged).
 
 **Remote commands.** `lock` (optionally with a reason shown on the device),
 `unlock` — either a timed window (minutes) or a **full unlock** that clears the
@@ -186,7 +189,7 @@ they change; local tweaks keep working in between. Remote locks survive the
 daily rollover, and revoking the device from the dashboard returns the phone to
 local-only mode on the next poll.
 
-**Live dashboard (v1.3.3 + spec-004).** Buttons match the device's reported state (a
+**Live dashboard (glass edition — spec-005/006).** Buttons match the device's reported state (a
 locked device shows unlock actions, an unlocked one shows Lock), every command
 shows an immediate "Locking…/Unlocking… — waiting for device" state, and the
 panel refreshes itself every 10 s plus whenever the tab becomes visible — no
@@ -199,6 +202,20 @@ full unlock needs v1.3.3+" badge — apps before v1.3.3 quietly turn a full
 unlock into a 15-minute window, so the badge says so instead of letting the
 phone surprise you by re-locking. When the badge disappears (within ~30 s of
 updating the app), the update has landed.
+
+**Instant commands (v1.3.4 + spec-005).** While the panel tab is visible, the
+server holds the phone's poll open — a Lock or Unlock tap is delivered in
+~1.5 s, and the confirmation (toast + chime + vibrate) follows within
+seconds. The card shows a ⚡ fast chip while this live link is active; close
+the tab and the phone returns to its normal ~30 s cycle (battery-safe: hold
+only while hot, 30-min continuous cap).
+
+**Glass design (spec-006).** The whole panel is frosted translucent glass
+over a soft indigo/cyan glow: sticky glass header, glowing status badges
+(locked pulses red, pending pulses amber), gradient buttons and usage bars,
+and confirmation toasts with a distinct chime for lock vs unlock. Motion is
+calm (~300 ms), fires only on initial render, and respects the system's
+reduce-motion setting.
 
 **Fail-closed, not fail-open.** The whole design assumes the child might pull
 the plug on connectivity. If the device cannot reach the server for longer than
@@ -368,6 +385,8 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3.4](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.4) | Instant commands (spec-005): while the parent's panel is open, lock/unlock are delivered in ~1.5 s via hot-mode long-poll (server holds the poll, checks every 1.5 s); ⚡ fast chip on the card; battery-safe — hold only while the panel is visible, 30-min continuous cap, idle polling unchanged (~30 s); dashboard heartbeat pauses while the tab is hidden |
+| dashboard spec-006 (no APK needed) | Glass super-UI: frosted translucent cards over an indigo/cyan glow, sticky glass header, glowing badges, gradient buttons/bars; confirmation toasts with lock/unlock chimes + vibrate (EN+FA); calm ~300 ms animations (initial render only) with reduce-motion support |
 | dashboard spec-004 (no APK needed) | Pending truth + old-app honesty: the "waiting for device" state survives a manual refresh (no more re-tapping after F5); in-flight commands are visible from server truth in any tab; old phone apps (< v1.3.3) get a persistent "old phone app — full unlock needs v1.3.3+" badge and their full-unlock wait ends when the 15-minute window lands instead of freezing |
 | [v1.3.3](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.3) | Real unlock + live dashboard (spec-003): full unlock command clears the cloud lock until the next lock (limit/clock locks degrade honestly to a timed window); state-aware buttons; instant "waiting for device" feedback on every command; 10 s auto-refresh + refresh-on-focus; app confirms commands ~4 s after applying them |
 | [v1.3.2](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.2) | Safe unpair: dashboard warns before unpairing a LOCKED device (bilingual) and the Unpair button is separated from Lock/Unlock; a device unpaired while locked keeps the lock (fail-closed) but relabels its status and shows a parent-PIN recovery notice; cloud Worker source now lives in `cloud/` |

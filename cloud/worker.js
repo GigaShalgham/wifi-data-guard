@@ -38,6 +38,10 @@ var I18N = {
     waitDevice: "waiting for device (up to ~1 min)",
     oldApp: "old phone app \u2014 full unlock needs v1.3.3+",
     fastLink: "fast",
+    toastLocked: "\u2713 Locked \u2014 confirmed by device",
+    toastTimed: "\u2713 Unlocked for 15 minutes",
+    toastOldApp: "\u2713 Unlocked (15 min) \u2014 old phone app",
+    toastUnlocked: "\u2713 Unlocked \u2014 confirmed by device",
     settings: "Settings",
     save: "Save",
     saved: "Saved — the device picks it up on its next poll.",
@@ -95,6 +99,10 @@ var I18N = {
     waitDevice: "در انتظار دستگاه (تا ~۱ دقیقه)",
     oldApp: "برنامهٔ قدیمی — بازکردن کامل نیاز به نسخهٔ ۱.۳.۳+ دارد",
     fastLink: "سریع",
+    toastLocked: "✓ قفل شد — تأیید توسط دستگاه",
+    toastTimed: "✓ باز شد برای ۱۵ دقیقه",
+    toastOldApp: "✓ باز شد (۱۵ دقیقه) — برنامهٔ گوشی قدیمی است",
+    toastUnlocked: "✓ باز شد — تأیید توسط دستگاه",
     settings: "تنظیمات",
     save: "ذخیره",
     saved: "ذخیره شد — در poll بعدی اعمال می‌شود.",
@@ -262,6 +270,7 @@ function refresh(rerender){
   api("/api/me").then(function(res){
     if (!res.ok) { throw { auth: true }; }
     me = res;
+    toastConfirmed();
     clearConfirmedPends();
     if (rerender || !document.getElementById("devlist")) renderApp(document.getElementById("root"));
     else updateDynamic();
@@ -276,7 +285,7 @@ function refresh(rerender){
 function renderApp(root){
   document.title = "Wi-Fi Data Guard";
   var h =
-  '<div class="wrap">' +
+  '<div class="wrap entrance">' +
     '<div class="spread" style="margin-bottom:14px">' +
       '<h1><img src="/icon.svg" alt="">Wi-Fi Data Guard</h1>' +
       '<div class="row">' +
@@ -300,6 +309,10 @@ function renderApp(root){
     '<div class="footer">Wi-Fi Data Guard · ' + esc(t("loaded")) + ' <span id="tick"></span></div>' +
   '</div>';
   root.innerHTML = h;
+  setTimeout(function(){
+    var w = document.querySelector(".wrap.entrance");
+    if (w) w.classList.remove("entrance");
+  }, 900);
   document.getElementById("btnLang").onclick = function(){ setLang(lang === "fa" ? "en" : "fa"); };
   document.getElementById("btnLogout").onclick = function(){
     api("/api/auth/logout", { method: "POST" }).then(function(){ clearInterval(pairTimer); renderLogin(root); });
@@ -360,7 +373,7 @@ function deviceCard(d){
         (rep ? '<span class="badge ' + st.cls + '"><span class="dot"></span>' + esc(st.label) + '</span>' : '') +
       '</div>' +
       (p
-        ? '<span class="badge grace">' + esc(p.type === "lock" ? t("pendingLock") : t("pendingUnlock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
+        ? '<span class="badge grace pend">' + esc(p.type === "lock" ? t("pendingLock") : t("pendingUnlock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
         : ((d.pending_types && (d.pending_types.unlock || d.pending_types.lock))
           ? '<span class="badge grace">' + esc(d.pending_types.unlock ? t("pendingUnlock") : t("pendingLock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
           : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : ''))) +
@@ -496,6 +509,67 @@ function trackRefresh(){
   for (var i = 0; i < delays.length; i++) setTimeout(refresh, delays[i]);
 }
 
+// ---------------- spec-006: confirmation toasts + chime + vibrate ----------
+// Fires ONLY when the device's own report confirms a pending command (the
+// same truth the pending chip uses) — never on optimistic state (Art. VIII).
+function toastConfirmed(){
+  var devs = (me && me.devices) || [];
+  for (var i = 0; i < devs.length; i++) {
+    var d = devs[i];
+    var p = pendFor(d);
+    if (!p || !pendConfirmed(p, d.report)) continue;
+    var msg, kind;
+    if (p.type === "lock") { msg = t("toastLocked"); kind = "bad"; }
+    else if (p.timed)      { msg = t("toastTimed"); kind = "ok"; }
+    else if (p.oldApp)     { msg = t("toastOldApp"); kind = "ok"; }
+    else                   { msg = t("toastUnlocked"); kind = "ok"; }
+    toast(msg, kind);
+    chime(p.type === "lock" ? "lock" : "unlock");
+  }
+}
+var toastBox = null;
+function toast(msg, kind){
+  try {
+    if (!toastBox) {
+      toastBox = document.createElement("div");
+      toastBox.className = "toasts";
+      document.body.appendChild(toastBox);
+    }
+    var el = document.createElement("div");
+    el.className = "toast " + (kind || "ok");
+    el.textContent = msg;
+    el.onclick = function(){ el.remove(); };
+    toastBox.appendChild(el);
+    while (toastBox.children.length > 4) toastBox.firstChild.remove();
+    setTimeout(function(){ el.remove(); }, 4000);
+  } catch (e) {}
+}
+var audioCtx = null;
+function chime(kind){
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audioCtx) audioCtx = new AC();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    var seq = kind === "lock" ? [330, 220] : [440, 660];
+    for (var i = 0; i < seq.length; i++) {
+      var o = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      o.type = "sine";
+      o.frequency.value = seq[i];
+      var t0 = audioCtx.currentTime + i * 0.12;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.11);
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.start(t0);
+      o.stop(t0 + 0.12);
+    }
+  } catch (e) {}
+  try { if (navigator.vibrate) navigator.vibrate(30); } catch (e2) {}
+}
+
 // ------------------------------------------------------------------ boot
 
 setLang(lang);
@@ -536,7 +610,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v4";
+var SW_JS = `const CACHE = "dg-v5";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -560,63 +634,91 @@ self.addEventListener("fetch", e => {
 });`;
 var DASHBOARD_CSS = `
 :root{
-  --bg:#0b1220; --panel:#121a2e; --panel2:#0e1526; --line:#223052;
-  --txt:#e7ecf6; --mut:#8b98b8; --acc:#6366f1; --acc2:#06b6d4;
-  --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --radius:16px;
+  --bg:#070d1a; --panel:#0d1730; --panel2:#0a1226; --line:rgba(148,163,216,.14);
+  --txt:#e9edf8; --mut:#8e9bbd; --acc:#6366f1; --acc2:#22d3ee;
+  --ok:#10b981; --warn:#f59e0b; --bad:#ef4444; --radius:20px;
+  --glass:rgba(16,26,52,.52); --glass-brd:rgba(255,255,255,.09);
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--txt);
+body{margin:0;color:var(--txt);
   font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Vazirmatn,Roboto,sans-serif;
-  min-height:100vh}
+  min-height:100vh;
+  background:
+    radial-gradient(1100px 700px at 12% -8%, rgba(99,102,241,.20), transparent 55%),
+    radial-gradient(900px 620px at 105% 12%, rgba(34,211,238,.13), transparent 55%),
+    radial-gradient(760px 760px at 50% 118%, rgba(99,102,241,.10), transparent 60%),
+    var(--bg);
+  background-attachment:fixed}
 [dir=rtl] body{font-family:Vazirmatn,"Segoe UI",Tahoma,sans-serif}
 a{color:var(--acc2)}
 .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
-  padding:18px;margin-bottom:16px}
+.card{background:var(--glass);border:1px solid var(--glass-brd);border-radius:var(--radius);
+  padding:18px;margin-bottom:16px;position:relative;
+  -webkit-backdrop-filter:blur(20px) saturate(160%);backdrop-filter:blur(20px) saturate(160%);
+  box-shadow:0 10px 34px rgba(2,6,18,.45), inset 0 1px 0 rgba(255,255,255,.05)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .card{background:rgba(13,23,48,.94)}
+}
 h1{font-size:20px;margin:0 0 2px;display:flex;align-items:center;gap:10px}
-h1 img{width:34px;height:34px}
-h2{font-size:15px;margin:0 0 12px;color:var(--mut);font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+h1 img{width:34px;height:34px;filter:drop-shadow(0 0 10px rgba(99,102,241,.45))}
+h2{font-size:13px;margin:0 0 12px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.6px}
 .sub{color:var(--mut);font-size:13px}
 .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .spread{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.wrap>.spread:first-child{position:sticky;top:10px;z-index:30;margin:-6px -10px 16px;padding:10px 12px;
+  border-radius:16px;background:rgba(10,17,34,.6);border:1px solid var(--glass-brd);
+  -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px)}
 input[type=email],input[type=number],select{
-  background:var(--panel2);border:1px solid var(--line);color:var(--txt);
-  border-radius:10px;padding:10px 12px;font:inherit;width:100%}
-input:focus,select:focus{outline:none;border-color:var(--acc)}
-button{background:var(--acc);color:#fff;border:0;border-radius:10px;padding:10px 16px;
-  font:inherit;font-weight:600;cursor:pointer;transition:filter .15s}
-button:hover{filter:brightness(1.15)}
-button.ghost{background:transparent;border:1px solid var(--line);color:var(--txt)}
+  background:rgba(7,12,26,.6);border:1px solid var(--line);color:var(--txt);
+  border-radius:12px;padding:10px 12px;font:inherit;width:100%;transition:border-color .2s}
+input:focus,select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px rgba(99,102,241,.18)}
+button{background:linear-gradient(135deg,var(--acc),#4f46e5);color:#fff;border:0;border-radius:12px;
+  padding:10px 16px;font:inherit;font-weight:600;cursor:pointer;
+  box-shadow:0 4px 16px rgba(79,70,229,.35), inset 0 1px 0 rgba(255,255,255,.18);
+  transition:transform .15s,box-shadow .15s,filter .15s}
+button:hover{filter:brightness(1.12);transform:translateY(-1px)}
+button:active{transform:translateY(0)}
+button.ghost{background:rgba(255,255,255,.05);border:1px solid var(--glass-brd);color:var(--txt);
+  box-shadow:none;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+button.ghost:hover{background:rgba(255,255,255,.09)}
 .row.sep{margin-top:14px;padding-top:12px;border-top:1px dashed var(--line);justify-content:flex-end}
-button.ghost.warn{color:var(--bad);border-color:var(--bad)}
-button.danger{background:var(--bad)}
-button.ok{background:var(--ok)}
-button.small{padding:6px 10px;font-size:13px}
-button:disabled{opacity:.45;cursor:not-allowed}
-.bar{height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;margin:10px 0 4px}
-.bar>div{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:6px;transition:width .4s}
-.bar>div.warn{background:var(--warn)}
-.bar>div.bad{background:var(--bad)}
+button.ghost.warn{color:var(--bad);border-color:rgba(239,68,68,.4)}
+button.ghost.warn:hover{background:rgba(239,68,68,.10)}
+button.danger{background:linear-gradient(135deg,#ef4444,#dc2626);box-shadow:0 4px 16px rgba(239,68,68,.3)}
+button.ok{background:linear-gradient(135deg,#10b981,#059669);box-shadow:0 4px 16px rgba(16,185,129,.3)}
+button.small{padding:7px 12px;font-size:13px;border-radius:10px}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.bar{height:12px;background:rgba(7,12,26,.65);border-radius:8px;overflow:hidden;margin:10px 0 4px;
+  box-shadow:inset 0 1px 3px rgba(0,0,0,.4)}
+.bar>div{height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2));border-radius:8px;
+  transition:width .4s ease;box-shadow:0 0 12px rgba(99,102,241,.35)}
+.bar>div.warn{background:linear-gradient(90deg,#f59e0b,#f97316);box-shadow:0 0 12px rgba(245,158,11,.4)}
+.bar>div.bad{background:linear-gradient(90deg,#ef4444,#f87171);box-shadow:0 0 14px rgba(239,68,68,.5)}
 .pct{font-size:12px;color:var(--mut)}
 .badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;
-  padding:3px 10px;border-radius:99px;border:1px solid var(--line)}
+  padding:3px 10px;border-radius:99px;border:1px solid var(--line);
+  background:rgba(255,255,255,.04);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 .badge .dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}
-.badge.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
-.badge.locked{color:var(--bad)} .badge.locked .dot{background:var(--bad)}
-.badge.grace{color:var(--warn)} .badge.grace .dot{background:var(--warn)}
-.badge.fastchip{color:var(--acc2);border-color:var(--acc2)}
+.badge.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok);animation:breathe 2.4s ease-in-out infinite}
+.badge.locked{color:#fda4af;border-color:rgba(239,68,68,.45)}
+.badge.locked .dot{background:var(--bad);box-shadow:0 0 10px var(--bad);animation:pulseDot 1.5s ease-in-out infinite}
+.badge.grace{color:#fcd34d;border-color:rgba(245,158,11,.45)}
+.badge.grace .dot{background:var(--warn)}
+.badge.pend{animation:pulseGlow 1.6s ease-in-out infinite}
+.badge.fastchip{color:#7dd3fc;border-color:rgba(34,211,238,.5)}
 .code{font:32px/1.2 ui-monospace,Menlo,monospace;letter-spacing:10px;text-align:center;
-  background:var(--panel2);border:1px dashed var(--line);border-radius:12px;padding:16px;margin:12px 0;color:var(--acc2)}
+  background:rgba(7,12,26,.65);border:1px dashed rgba(34,211,238,.4);border-radius:14px;
+  padding:16px;margin:12px 0;color:var(--acc2);text-shadow:0 0 18px rgba(34,211,238,.5)}
 .spark{display:flex;align-items:flex-end;gap:2px;height:44px;margin-top:10px}
-.spark i{flex:1;background:var(--panel2);border-radius:2px 2px 0 0;min-height:2px}
-.spark i.hot{background:var(--warn)}
+.spark i{flex:1;background:rgba(148,163,216,.18);border-radius:3px 3px 0 0;min-height:2px;transition:background .3s}
+.spark i.hot{background:linear-gradient(180deg,#f59e0b,#ef4444);box-shadow:0 0 8px rgba(245,158,11,.35)}
 .log{list-style:none;margin:0;padding:0;font-size:13px}
 .log li{padding:7px 0;border-bottom:1px solid var(--line);color:var(--mut);display:flex;gap:8px;justify-content:space-between}
 .log li b{color:var(--txt);font-weight:600}
 .hidden{display:none}
-.msg{padding:10px 12px;border-radius:10px;margin:10px 0;font-size:14px}
-.msg.err{background:rgba(239,68,68,.12);color:#fca5a5}
-.msg.info{background:rgba(99,102,241,.12);color:#a5b4fc}
+.msg{padding:10px 12px;border-radius:12px;margin:10px 0;font-size:14px}
+.msg.err{background:rgba(239,68,68,.14);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.msg.info{background:rgba(99,102,241,.14);color:#a5b4fc;border:1px solid rgba(99,102,241,.3)}
 .msg .lnk{word-break:break-all}
 .settings{margin-top:12px;border-top:1px dashed var(--line);padding-top:12px}
 .settings .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -626,14 +728,43 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .center{max-width:400px;margin:8vh auto 0}
 .spin{display:inline-block;width:16px;height:16px;border:2px solid #fff5;border-top-color:#fff;
   border-radius:50%;animation:r 0.8s linear infinite;vertical-align:-3px}
+.toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:200;
+  display:flex;flex-direction:column;gap:8px;width:min(92vw,440px);pointer-events:none}
+.toast{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:10px;
+  background:rgba(13,23,48,.78);border:1px solid var(--glass-brd);border-radius:14px;
+  padding:12px 16px;font-size:14px;font-weight:600;color:var(--txt);
+  -webkit-backdrop-filter:blur(18px) saturate(160%);backdrop-filter:blur(18px) saturate(160%);
+  box-shadow:0 10px 30px rgba(2,6,18,.5);
+  animation:toastIn .28s cubic-bezier(.2,.7,.3,1) both}
+.toast.ok{border-color:rgba(16,185,129,.5)}
+.toast.ok::before{content:"";width:9px;height:9px;border-radius:50%;flex:0 0 9px;
+  background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.toast.bad{border-color:rgba(239,68,68,.5)}
+.toast.bad::before{content:"";width:9px;height:9px;border-radius:50%;flex:0 0 9px;
+  background:var(--bad);box-shadow:0 0 10px var(--bad)}
 @keyframes r{to{transform:rotate(360deg)}}
+@keyframes breathe{0%,100%{opacity:1}50%{opacity:.55}}
+@keyframes pulseDot{0%,100%{box-shadow:0 0 4px var(--bad)}50%{box-shadow:0 0 12px var(--bad)}}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 0 rgba(245,158,11,0)}50%{box-shadow:0 0 14px rgba(245,158,11,.35)}}
+@keyframes toastIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+.entrance .card{animation:rise .32s cubic-bezier(.2,.7,.3,1) both}
+.entrance .card:nth-of-type(2){animation-delay:.05s}
+.entrance .card:nth-of-type(3){animation-delay:.10s}
+.entrance .card:nth-of-type(4){animation-delay:.15s}
+.entrance .card:nth-of-type(5){animation-delay:.20s}
+.entrance .card:nth-of-type(6){animation-delay:.25s}
+.entrance .card:nth-of-type(7){animation-delay:.30s}
+@keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
 `;
 var DASHBOARD_HTML = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0b1220">
+<meta name="theme-color" content="#070d1a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="apple-touch-icon" href="/icon.svg">

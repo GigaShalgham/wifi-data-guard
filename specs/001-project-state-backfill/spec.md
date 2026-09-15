@@ -45,9 +45,11 @@ via `/speckit-specify`, not from memory.
 - Safe unpair (v1.3.2): dashboard lock-aware revoke warning + separated Unpair button; unpaired-while-locked device relabels status and shows the parent-PIN notice
 - Real unlock + live dashboard (v1.3.3, deployed + app built): state-aware buttons, full-unlock command (clears cloud/offline latch; limit/clock degrade to timed window with notice), optimistic pending chips, 10 s + focus/visibility refresh, ~4 s confirmation poll — user device re-test pending
 - Pending truth + old-app honesty (spec-004, worker-only, deployed 2026-09-15): pending state survives manual refresh (sessionStorage); old phone apps (< v1.3.3) get a persistent amber badge and their full-unlock pending confirms on grace landing (no 90 s freeze); `/api/me` exposes queued command types (type-aware server chip); refresh burst to 90 s; SW dg-v4. **No app release required** — but the phone still needs the v1.3.3 APK installed for full unlock to truly clear the latch (Art. XI disclosure)
+- Instant commands (spec-005, deployed 2026-09-15 + app v1.3.4): hot-mode long-poll — the panel's visible-tab heartbeat (10 s `/api/me`) keeps devices hot 75 s; polls with `wait` (1–25 s) are held checking D1 every 1.5 s, so commands land ~1.5 s; `fast` flag in poll + `/api/me` (⌁ chip, honest — only when the device actually long-polls); command creation extends hot 120 s; app: 1 s fast pacing, 90 s re-arm, 30-min cap, 35 s read timeout; dashboard heartbeat pauses while hidden; D1 columns `devices.hot_until` + `last_wait_poll_at`
+- Glass super-UI (spec-006, worker-only, deployed 2026-09-15): frosted-glass cards over indigo/cyan glow, sticky glass header, glowing badges, gradient buttons/bars, confirmation toasts (EN+FA) + WebAudio chime (lock/unlock tone pairs) + vibrate — fired only on real device confirmations; calm ~300 ms animations on initial render only; `prefers-reduced-motion` kill-switch; SW dg-v5
 
 ### Known limitations / accepted trade-offs
-- Config latency = poll interval (default ~30 s) + jitter — by design (battery), documented
+- Config latency = poll interval (default ~30 s) + jitter when idle — by design (battery). With app v1.3.4+ AND the panel visible, hot-mode long-poll cuts command delivery to ~1.5 s (spec-005)
 - Clock-tamper defense requires cloud pairing (local-only has no trusted time source)
 - Hard mode (Wi-Fi off) needs device-owner rights; without them it falls back to full-tunnel VPN block
 - workers.dev bot filter blocks default python-urllib UA (app's custom UA passes; benchmarks must send a browser-ish UA)
@@ -56,9 +58,11 @@ via `/speckit-specify`, not from memory.
 
 | # | Spec | Why | Source |
 |---|------|-----|--------|
-| A | `005-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
-| B | `006-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
-| C | `007-e2e-verification-v1.3.3` | Device re-tests of v1.3.3-test4 (AFTER installing it): full unlock (US1), live panel incl. refresh-mid-command (US2), state-aware buttons (US3), old-app badge gone + safe-unpair carry-over from v1.3.2-test3 | spec-003 + spec-004 + spec-002 |
+| A | `007-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
+| B | `008-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
+| C | `009-e2e-verification-v1.3.4` | Device re-tests of v1.3.4-test5 (AFTER installing it): instant commands + ⚡ chip (spec-005 US1/2), glass UI + toasts (spec-006), full unlock (spec-003), refresh-mid-command (spec-004), safe-unpair carry-over (spec-002) | specs 002–006 |
+| ✓ | ~~`006-glass-dashboard`~~ DONE (worker-only, 2026-09-15) | Glass super-UI + confirmation toasts/chime/vibrate | owner request ("super ui upgrade") |
+| ✓ | ~~`005-instant-poll-hot-mode`~~ DONE (worker + app v1.3.4, 2026-09-15) | ~1.5 s command delivery while panel in use; battery-safe | owner request ("reduce the poll time") |
 | ✓ | ~~`004-dashboard-pending-truth`~~ DONE (worker-only, 2026-09-15) | Pending state survives refresh; old-app badge + degraded confirm; server-truth pending types | user re-test of v1.3.3 ("refresh and repeat") |
 | ✓ | ~~`003-dashboard-live-unlock`~~ DONE (v1.3.3, 2026-09-15) | Real unlock + live dashboard | user bug report |
 | ✓ | ~~`002-safe-unpair`~~ DONE (v1.3.2, 2026-09-15) | Revoked-while-locked trap: warning, separation, honest relabel, PIN notice, cloud source in repo | user bug report |
