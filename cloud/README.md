@@ -79,7 +79,7 @@ The Worker keeps deployment history in the dashboard; simplest rollback is
 | `/api/auth/request-link` | POST | — | parent magic-link sign-in |
 | `/api/pair-code` | POST | parent session | generate 6-digit pairing code |
 | `/api/child/pair` | POST | pairing code | device ↔ parent pairing, returns device token |
-| `/api/child/poll` | POST | device token | usage report ⇄ pending commands + config |
+| `/api/child/poll` | POST | device token | usage report ⇄ pending commands + config; optional `"wait": 1..25` (s) hot-mode long-poll (see below) |
 | `/api/child/ack` | POST | device token | acknowledge applied commands |
 | `/api/devices/{id}/command` | POST | parent session | lock / unlock / config |
 | `/api/devices/{id}/revoke` | POST | parent session | unpair device |
@@ -87,11 +87,25 @@ The Worker keeps deployment history in the dashboard; simplest rollback is
 | `/api/me`, `/api/audit` | GET | parent session | dashboard state, activity log |
 
 D1 tables: `parents`, `sessions`, `magic_links`, `pair_codes`, `devices`,
-`commands`, `usage_reports`, `audit_log`.
+`commands`, `usage_reports`, `audit_log`. `devices` also carries `hot_until`
+and `last_wait_poll_at` (spec-005 hot-mode state).
+
+## Hot-mode long-poll (spec-005, instant commands)
+
+The parent panel's 10 s heartbeat (only while the tab is visible) stamps
+`devices.hot_until = now + 75 s` for that parent's devices. A device poll with
+`"wait": N` (app v1.3.4+, clamped 0–25 s) is HELD by the worker — checking D1
+every 1.5 s — while the device is hot, so a command created from the dashboard
+is delivered in ~1.5 s instead of the next poll cycle. Command creation extends
+the hot window to `now + 120 s` (fast ack + report). The poll response carries
+`fast: true|false` (server-side truth, clock-skew-immune); the app re-polls at
+1 s pacing while fast and falls back to the configured interval otherwise.
+Battery caps: hold only while hot, app-side 90 s re-arm + 30 min continuous cap.
+Older apps never send `wait` and are answered immediately, exactly as before.
 
 ## Known pending work
 
 - `/demo` simulator is still live — removal is roadmap spec
-  `003-remove-demo-endpoint` (see `specs/001-project-state-backfill/`).
+  `007-cloud-security-hardening` (see `specs/001-project-state-backfill/`).
 - Email delivery for magic links is not configured; the bootstrap one-time
   link flow (`BOOTSTRAP_EMAIL`) is the active sign-in path.

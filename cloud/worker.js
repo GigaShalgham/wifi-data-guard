@@ -37,6 +37,7 @@ var I18N = {
     pendingUnlock: "Unlocking\u2026",
     waitDevice: "waiting for device (up to ~1 min)",
     oldApp: "old phone app \u2014 full unlock needs v1.3.3+",
+    fastLink: "fast",
     settings: "Settings",
     save: "Save",
     saved: "Saved — the device picks it up on its next poll.",
@@ -93,6 +94,7 @@ var I18N = {
     pendingUnlock: "در حال باز کردن…",
     waitDevice: "در انتظار دستگاه (تا ~۱ دقیقه)",
     oldApp: "برنامهٔ قدیمی — بازکردن کامل نیاز به نسخهٔ ۱.۳.۳+ دارد",
+    fastLink: "سریع",
     settings: "تنظیمات",
     save: "ذخیره",
     saved: "ذخیره شد — در poll بعدی اعمال می‌شود.",
@@ -363,6 +365,7 @@ function deviceCard(d){
           ? '<span class="badge grace">' + esc(d.pending_types.unlock ? t("pendingUnlock") : t("pendingLock")) + ' \u00b7 ' + esc(t("waitDevice")) + '</span>'
           : (d.pending_commands ? '<span class="badge grace">' + d.pending_commands + " " + esc(t("cmds")) + '</span>' : ''))) +
       (appOld(rep) ? '<span class="badge grace">' + esc(t("oldApp")) + '</span>' : '') +
+      (d.fast ? '<span class="badge fastchip">\u26a1 ' + esc(t("fastLink")) + '</span>' : '') +
     '</div>' +
     (rep ? '<div class="bar"><div class="' + barCls.trim() + '" style="width:' + pct + '%"></div></div>' +
       '<div class="spread"><span>' + esc(t("usage")) + ': ' + fmtBytes(used) + " / " + fmtBytes(limit) +
@@ -499,8 +502,17 @@ setLang(lang);
 if ("serviceWorker" in navigator && location.protocol === "https:") {
   navigator.serviceWorker.register("/sw.js").catch(function(){});
 }
-setInterval(function(){ refresh(); }, 10000);
-document.addEventListener("visibilitychange", function(){ if (!document.hidden) refresh(); });
+// spec-005 FR-005: the 10 s heartbeat runs only while the tab is visible —
+// a hidden tab stops paying for the phone's fast mode (and for worker
+// invocations). Visible again: restart + immediate refresh.
+var beat = null;
+function startBeat(){ if (!beat) beat = setInterval(function(){ refresh(); }, 10000); }
+function stopBeat(){ clearInterval(beat); beat = null; }
+startBeat();
+document.addEventListener("visibilitychange", function(){
+  if (document.hidden) stopBeat();
+  else { startBeat(); refresh(); }
+});
 window.addEventListener("focus", function(){ refresh(); });
 `;
 
@@ -592,6 +604,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .badge.on .dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .badge.locked{color:var(--bad)} .badge.locked .dot{background:var(--bad)}
 .badge.grace{color:var(--warn)} .badge.grace .dot{background:var(--warn)}
+.badge.fastchip{color:var(--acc2);border-color:var(--acc2)}
 .code{font:32px/1.2 ui-monospace,Menlo,monospace;letter-spacing:10px;text-align:center;
   background:var(--panel2);border:1px dashed var(--line);border-radius:12px;padding:16px;margin:12px 0;color:var(--acc2)}
 .spark{display:flex;align-items:flex-end;gap:2px;height:44px;margin-top:10px}
@@ -927,7 +940,7 @@ async function deviceFromToken(db, request) {
   if (!m) return null;
   const token_hash = await sha256hex(m[1].toLowerCase());
   const row = await db.prepare(
-    "SELECT id, parent_id, name, settings_json, revoked FROM devices WHERE token_hash = ?"
+    "SELECT id, parent_id, name, settings_json, revoked, hot_until FROM devices WHERE token_hash = ?"
   ).bind(token_hash).first();
   if (!row || row.revoked) return null;
   return row;
@@ -1030,8 +1043,15 @@ async function handleLogout(request, env) {
 __name(handleLogout, "handleLogout");
 async function handleMe(request, env, parent) {
   const devices = await env.DB.prepare(
-    "SELECT id, name, created_at, last_seen_at, last_report_json, settings_json FROM devices WHERE parent_id = ? AND revoked = 0 ORDER BY id"
+    "SELECT id, name, created_at, last_seen_at, last_report_json, settings_json, hot_until, last_wait_poll_at FROM devices WHERE parent_id = ? AND revoked = 0 ORDER BY id"
   ).bind(parent.id).all();
+  // spec-005 FR-002: an authenticated dashboard heartbeat (every 10 s while
+  // the tab is visible) keeps this parent's devices "hot" — eligible for
+  // long-poll holds — for 75 s. Tab closed/hidden -> heartbeat stops ->
+  // hot expires -> devices return to their normal poll cycle.
+  await env.DB.prepare(
+    "UPDATE devices SET hot_until = ? WHERE parent_id = ? AND revoked = 0"
+  ).bind(now() + 75e3, parent.id).run();
   const pendingCounts = await env.DB.prepare(
     "SELECT device_id, type, COUNT(*) AS n FROM commands WHERE delivered_at IS NULL GROUP BY device_id, type"
   ).all();
@@ -1055,6 +1075,7 @@ async function handleMe(request, env, parent) {
       report: d.last_report_json ? JSON.parse(d.last_report_json) : null,
       pending_commands: pending[d.id] || 0,
       pending_types: pendingTypes[d.id] || {},
+      fast: !!(d.last_wait_poll_at && now() - d.last_wait_poll_at < 45e3),
     }))
   });
 }
@@ -1110,6 +1131,9 @@ async function handleCommand(request, env, parent, deviceId) {
   await env.DB.prepare(
     "INSERT INTO commands (device_id, parent_id, type, payload_json, created_at) VALUES (?,?,?,?,?)"
   ).bind(device.id, parent.id, type, JSON.stringify(payload), now()).run();
+  // spec-005 FR-003: commanding a device extends its hot window so the
+  // ack + report land on the fast path too
+  await env.DB.prepare("UPDATE devices SET hot_until = MAX(hot_until, ?) WHERE id = ?").bind(now() + 120e3, device.id).run();
   await writeAudit(env.DB, { parent_id: parent.id, device_id: device.id, action: "command_created", detail: { type, payload } });
   return json({ ok: true });
 }
@@ -1173,6 +1197,13 @@ async function handleChildPair(request, env) {
   return json({ ok: true, device_token, device_id, config: DEFAULT_DEVICE_SETTINGS });
 }
 __name(handleChildPair, "handleChildPair");
+// spec-005: poll-hold helpers (unit-tested in scripts/verify_spec005.js)
+function clampWait(v){
+  return Math.max(0, Math.min(25, parseInt(v, 10) || 0));
+}
+function holdEligible(waitSec, hotUntil, nowMs){
+  return waitSec > 0 && hotUntil > nowMs;
+}
 async function handleChildPoll(request, env) {
   const device = await deviceFromToken(env.DB, request);
   if (!device) return unauthorized("invalid device token");
@@ -1183,6 +1214,11 @@ async function handleChildPoll(request, env) {
   }
   const t = now();
   const db = env.DB;
+  // spec-005 FR-004: the device may ask the server to HOLD this poll for up
+  // to 25 s waiting for a command; the hold only happens while the device
+  // is hot (parent's panel active). Old apps never send wait -> 0 -> today's
+  // immediate behavior.
+  const waitSec = clampWait(body.wait);
   const report = body.report || null;
   if (report && typeof report === "object") {
     const clean = {
@@ -1194,7 +1230,7 @@ async function handleChildPoll(request, env) {
       app_version: String(report.app_version || "").slice(0, 20),
       ts: t
     };
-    await db.prepare("UPDATE devices SET last_seen_at = ?, last_report_json = ? WHERE id = ?").bind(t, JSON.stringify(clean), device.id).run();
+    await db.prepare("UPDATE devices SET last_seen_at = ?, last_wait_poll_at = CASE WHEN ? > 0 THEN ? ELSE last_wait_poll_at END, last_report_json = ? WHERE id = ?").bind(t, waitSec, t, JSON.stringify(clean), device.id).run();
     const last = await db.prepare(
       "SELECT ts FROM usage_reports WHERE device_id = ? ORDER BY ts DESC LIMIT 1"
     ).bind(device.id).first();
@@ -1205,7 +1241,7 @@ async function handleChildPoll(request, env) {
       });
     }
   } else {
-    await db.prepare("UPDATE devices SET last_seen_at = ? WHERE id = ?").bind(t, device.id).run();
+    await db.prepare("UPDATE devices SET last_seen_at = ?, last_wait_poll_at = CASE WHEN ? > 0 THEN ? ELSE last_wait_poll_at END WHERE id = ?").bind(t, waitSec, t, device.id).run();
   }
   const acks = Array.isArray(body.acks) ? body.acks.filter((x) => Number.isInteger(x)).slice(0, 50) : [];
   if (acks.length) {
@@ -1213,9 +1249,23 @@ async function handleChildPoll(request, env) {
     await db.prepare(`UPDATE commands SET acked_at = ? WHERE id IN (${ph}) AND device_id = ? AND acked_at IS NULL`).bind(t, ...acks, device.id).run();
     await writeAudit(db, { parent_id: device.parent_id, device_id: device.id, action: "command_acked", detail: { ids: acks } });
   }
-  const pending = await db.prepare(
+  let pending = await db.prepare(
     "SELECT id, type, payload_json FROM commands WHERE device_id = ? AND delivered_at IS NULL ORDER BY id LIMIT 20"
   ).bind(device.id).all();
+  // spec-005 FR-004: hot-mode long-poll — hold up to `wait` seconds for a
+  // command to appear, but ONLY while the parent's panel keeps this device
+  // hot. The loop checks D1 every 1.5 s; a command inserted by the dashboard
+  // lands in ~1.5 s instead of the next poll cycle.
+  if (!(pending.results && pending.results.length) && holdEligible(waitSec, device.hot_until, Date.now())) {
+    const deadline = Date.now() + waitSec * 1000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, Math.min(1500, deadline - Date.now())));
+      pending = await db.prepare(
+        "SELECT id, type, payload_json FROM commands WHERE device_id = ? AND delivered_at IS NULL ORDER BY id LIMIT 20"
+      ).bind(device.id).all();
+      if (pending.results && pending.results.length) break;
+    }
+  }
   if (pending.results && pending.results.length) {
     const ids = pending.results.map((r) => r.id);
     const ph = ids.map(() => "?").join(",");
@@ -1230,7 +1280,10 @@ async function handleChildPoll(request, env) {
     ok: true,
     commands: (pending.results || []).map((r) => ({ id: r.id, type: r.type, payload: JSON.parse(r.payload_json || "{}") })),
     config: { ...DEFAULT_DEVICE_SETTINGS, ...JSON.parse(device.settings_json || "{}") },
-    server_time: t
+    server_time: t,
+    // spec-005: server-side truth (clock-skew-immune for the app): keep
+    // fast-polling while the device is hot
+    fast: device.hot_until > Date.now()
   });
 }
 __name(handleChildPoll, "handleChildPoll");

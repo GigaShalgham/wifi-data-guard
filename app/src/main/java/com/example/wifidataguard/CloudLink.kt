@@ -38,6 +38,14 @@ object CloudLink {
 
     @Volatile private var nextDueAt = 0L
 
+    // spec-005 hot mode: while the parent's panel is active the server holds
+    // our polls (wait=20) and answers `fast:true` — we then re-poll ~1 s later
+    // so a held connection is always pending and commands land in ~1.5 s.
+    // Pacing uses the REAL clock (Constitution VI), never AppClock.
+    @Volatile private var fastUntil = 0L
+    private var fastSince = 0L
+    @Volatile private var pollInFlight = false
+
     // ------------------------------------------------------------ state
 
     fun paired(c: Context): Boolean = Prefs.cloudToken(c).isNotEmpty()
@@ -58,6 +66,7 @@ object CloudLink {
         Prefs.setCloudServerTime(c, 0L)
         Prefs.setCloudApplied(c, "{}")
         pendingAcks.clear()
+        clearFast()
         if (fromServer && wasLatched && cloudOrigin) {
             Prefs.setLatchReason(c, "unpaired")
             WatchdogService.notifyRevokedWhileLocked(c)
@@ -110,8 +119,15 @@ object CloudLink {
         if (!paired(c)) return
         val now = System.currentTimeMillis()
         if (now < nextDueAt) return
-        // jitter ±2.5s around the configured interval
-        nextDueAt = now + Prefs.pollIntervalSec(c) * 1000L + (0..5000).random()
+        if (pollInFlight) return   // a (possibly held) poll is still running
+        if (now < fastUntil) {
+            // hot: re-poll in 1 s, no jitter — back-to-back held connections
+            nextDueAt = now + 1_000L
+        } else {
+            // jitter ±2.5s around the configured interval
+            nextDueAt = now + Prefs.pollIntervalSec(c) * 1000L + (0..5000).random()
+        }
+        pollInFlight = true
         val appCtx = c.applicationContext
         pool.execute { doPoll(appCtx) }
     }
@@ -126,6 +142,10 @@ object CloudLink {
     fun nextPollInMs(): Long = (nextDueAt - System.currentTimeMillis()).coerceAtLeast(0L)
 
     private fun doPoll(c: Context) {
+        try { doPollInner(c) } finally { pollInFlight = false }
+    }
+
+    private fun doPollInner(c: Context) {
         val token = Prefs.cloudToken(c)
         if (token.isEmpty()) return
         if (TestMode.simOffline) {
@@ -136,10 +156,14 @@ object CloudLink {
         val body = JSONObject().apply {
             put("report", buildReport(c))
             put("acks", JSONArray(acks))
+            // spec-005: ask the server to HOLD this poll while the parent's
+            // panel is active; the server ignores wait when not hot, so old
+            // behavior is preserved. Read timeout must cover a 20 s hold.
+            put("wait", 20)
         }
         val t0 = System.currentTimeMillis()
         val (status, txt) = try {
-            httpPost("$BASE/api/child/poll", token, body.toString())
+            httpPost("$BASE/api/child/poll", token, body.toString(), readTimeoutMs = 35_000)
         } catch (_: Exception) { -1 to "" }
         val elapsedMs = System.currentTimeMillis() - t0
 
@@ -152,6 +176,9 @@ object CloudLink {
                         val res = JSONObject(txt)
                         val serverTime = res.optLong("server_time", 0L)
                         Prefs.setCloudServerTime(c, serverTime)
+                        // spec-005: server-side hot-mode truth (boolean, so
+                        // device clock skew cannot misread it)
+                        if (res.optBoolean("fast")) armFast() else clearFast()
                         applyConfigIfChanged(c, res.optJSONObject("config") ?: JSONObject())
                         val cmds = res.optJSONArray("commands")
                         if (cmds != null && cmds.length() > 0)
@@ -170,6 +197,26 @@ object CloudLink {
                 else -> Logger.d(c, "cloud poll failed: HTTP $status")
             }
         }
+    }
+
+    /** spec-005: enter/extend fast mode (max 90 s per re-arm, 30 min hard cap
+     *  of continuous fast polling, then one normal cycle — battery safety). */
+    private fun armFast() {
+        val now = System.currentTimeMillis()
+        if (fastSince == 0L) fastSince = now
+        if (now - fastSince > 30 * 60_000L) {   // cap hit: breathe normally
+            fastUntil = 0L
+            fastSince = 0L
+            return
+        }
+        fastUntil = now + 90_000L
+        // transition into fast mode must not wait out the old interval
+        if (nextDueAt > now + 1_000L) nextDueAt = now + 1_000L
+    }
+
+    private fun clearFast() {
+        fastUntil = 0L
+        fastSince = 0L
     }
 
     private fun buildReport(c: Context): JSONObject = JSONObject().apply {
@@ -240,14 +287,15 @@ object CloudLink {
 
     // ------------------------------------------------------------ http
 
-    private fun httpPost(url: String, token: String?, body: String): Pair<Int, String> {
+    private fun httpPost(url: String, token: String?, body: String,
+                         readTimeoutMs: Int = 15_000): Pair<Int, String> {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 10_000
-            readTimeout = 15_000
+            readTimeout = readTimeoutMs
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("User-Agent", "DataGuard-Android/1.3.3")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.3.4")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
         }
         try {
