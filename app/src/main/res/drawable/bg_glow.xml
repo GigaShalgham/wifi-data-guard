@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Window background: deep-navy base + indigo glow (top-start) + cyan glow (bottom-end).
+     Cards sit translucent on top, so the glow bleeds through = glass without blur. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:angle="270"
+                android:startColor="@color/g_bg_top"
+                android:endColor="@color/g_bg"
+                android:type="linear"/>
+        </shape>
+    </item>
+    <item
+        android:gravity="top|start"
+        android:width="440dp"
+        android:height="440dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="230dp"
+                android:startColor="#665869E8"
+                android:endColor="#005869E8"/>
+        </shape>
+    </item>
+    <item
+        android:gravity="bottom|end"
+        android:width="480dp"
+        android:height="480dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="250dp"
+                android:startColor="#4D22D3EE"
+                android:endColor="#0022D3EE"/>
+        </shape>
+    </item>
+</layer-list>

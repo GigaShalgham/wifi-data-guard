@@ -2,4 +2,24 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- ===== Glass super-UI palette (spec-007; mirrors dashboard dg-v5 tokens) ===== -->
+    <color name="g_bg">#FF070D1A</color>          <!-- window base (dashboard night) -->
+    <color name="g_bg_top">#FF0A1122</color>      <!-- vertical gradient start -->
+    <color name="g_txt">#FFE8ECF8</color>         <!-- primary text -->
+    <color name="g_txt2">#FF8A96B8</color>        <!-- secondary text -->
+    <color name="g_txt3">#FF5A6684</color>        <!-- muted text / hints -->
+    <color name="g_stroke">#2EFFFFFF</color>      <!-- glass edge (15% white) -->
+    <color name="g_glass">#E6161F38</color>       <!-- card fill top -->
+    <color name="g_glass2">#E60F1727</color>      <!-- card fill bottom -->
+    <color name="g_field">#331A2542</color>       <!-- edittext / spinner fill -->
+    <color name="g_track">#33223552</color>       <!-- progress track -->
+    <color name="g_acc">#FF7C8CFF</color>         <!-- indigo accent -->
+    <color name="g_acc2">#FF22D3EE</color>        <!-- cyan accent -->
+    <color name="g_ok">#FF34D399</color>
+    <color name="g_warn">#FFFFB300</color>
+    <color name="g_bad">#FFFF5449</color>
+    <color name="g_on_grad">#FFFFFFFF</color>     <!-- text on gradient buttons -->
+    <color name="g_on_green">#FF06281A</color>    <!-- text on green gradient -->
+    <color name="g_on_amber">#FF2E1A00</color>    <!-- text on amber gradient -->
 </resources>

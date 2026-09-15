@@ -1,4 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.DataGuard" parent="Theme.AppCompat.DayNight.NoActionBar"/>
+    <!-- Glass dark super-UI (spec-007). AppCompat stays — no library change. -->
+    <style name="Theme.DataGuard" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/bg_glow</item>
+        <item name="android:statusBarColor">@color/g_bg</item>
+        <item name="android:navigationBarColor">@color/g_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColor">@color/g_txt</item>
+        <item name="android:textColorPrimary">@color/g_txt</item>
+        <item name="android:textColorSecondary">@color/g_txt2</item>
+        <item name="android:colorAccent">@color/g_acc</item>
+        <item name="colorAccent">@color/g_acc</item>
+        <item name="android:colorControlActivated">@color/g_acc</item>
+        <item name="colorControlActivated">@color/g_acc</item>
+        <item name="android:colorControlNormal">@color/g_txt3</item>
+    </style>
+
+    <!-- Cold start: glow gradient + centered shield; content covers it once inflated. -->
+    <style name="Theme.DataGuard.Launch">
+        <item name="android:windowBackground">@drawable/bg_splash</item>
+    </style>
+
+    <!-- Glass-styled alert dialogs (PIN, cloud pairing, logs, owner guide, test panel). -->
+    <style name="ThemeOverlay.DataGuard.Glass" parent="ThemeOverlay.AppCompat.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/bg_dialog</item>
+        <item name="android:colorAccent">@color/g_acc</item>
+        <item name="colorAccent">@color/g_acc</item>
+        <item name="android:textColorPrimary">@color/g_txt</item>
+        <item name="android:textColor">@color/g_txt</item>
+        <item name="android:textColorSecondary">@color/g_txt2</item>
+    </style>
 </resources>

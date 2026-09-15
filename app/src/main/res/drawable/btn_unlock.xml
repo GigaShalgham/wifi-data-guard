@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unlock (PIN): green gradient pill. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#4005200F">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="26dp"/>
+            <gradient
+                android:angle="0"
+                android:startColor="#FF34D399"
+                android:endColor="#FF2ECC71"/>
+        </shape>
+    </item>
+</ripple>

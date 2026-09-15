@@ -24,7 +24,7 @@ via `/speckit-specify`, not from memory.
 ## Current Deployed State (verified 2026-09-15)
 
 ### Android app (this repo)
-- **Latest release**: v1.3.3 (versionCode 7) — real unlock + live dashboard (spec-003); tags exist for v1.0–v1.3, v1.3-test1/2, v1.3.2, v1.3.2-test3, v1.3.3, v1.3.3-test4
+- **Latest release**: v1.3.5 (versionCode 9) — mobile glass super-UI (spec-007); tags exist for v1.0–v1.3, v1.3-test1/2, v1.3.2, v1.3.2-test3, v1.3.3, v1.3.3-test4, v1.3.4, v1.3.4-test5, v1.3.5, v1.3.5-test6
 - **Architecture**: single-module Kotlin app; `WatchdogService` (periodic watchdog + enforcement), `BlockerVpnService` (VPN-based internet blocking with self-exemption), `CloudLink` (optional cloud pairing/poll/commands), `AppClock` + `TestMode` (QA time machine, test builds only), `OwnerEnforcer`, `Prefs`, `Logger`, `LiveCounter`
 - **Signing**: v1.3+ keystore (SHA-256 c8abfd91…), backup in `download/wifidataguard-signing-v13/` on the dev sandbox (NOT in repo, per Constitution IV). The pre-v1.3 keystore was lost in a sandbox reset.
 - **QA channel**: `qa` build type → `com.example.wifidataguard.test` (installs alongside production), test panel with 1x–3600x virtual clock, usage injection, offline simulation, forced polls, verbose logs
@@ -47,6 +47,7 @@ via `/speckit-specify`, not from memory.
 - Pending truth + old-app honesty (spec-004, worker-only, deployed 2026-09-15): pending state survives manual refresh (sessionStorage); old phone apps (< v1.3.3) get a persistent amber badge and their full-unlock pending confirms on grace landing (no 90 s freeze); `/api/me` exposes queued command types (type-aware server chip); refresh burst to 90 s; SW dg-v4. **No app release required** — but the phone still needs the v1.3.3 APK installed for full unlock to truly clear the latch (Art. XI disclosure)
 - Instant commands (spec-005, deployed 2026-09-15 + app v1.3.4): hot-mode long-poll — the panel's visible-tab heartbeat (10 s `/api/me`) keeps devices hot 75 s; polls with `wait` (1–25 s) are held checking D1 every 1.5 s, so commands land ~1.5 s; `fast` flag in poll + `/api/me` (⌁ chip, honest — only when the device actually long-polls); command creation extends hot 120 s; app: 1 s fast pacing, 90 s re-arm, 30-min cap, 35 s read timeout; dashboard heartbeat pauses while hidden; D1 columns `devices.hot_until` + `last_wait_poll_at`
 - Glass super-UI (spec-006, worker-only, deployed 2026-09-15): frosted-glass cards over indigo/cyan glow, sticky glass header, glowing badges, gradient buttons/bars, confirmation toasts (EN+FA) + WebAudio chime (lock/unlock tone pairs) + vibrate — fired only on real device confirmations; calm ~300 ms animations on initial render only; `prefers-reduced-motion` kill-switch; SW dg-v5
+- Mobile glass super-UI (spec-007, app v1.3.5, 2026-09-15): the Android app gets the same design language — glow background + glass cards, status hero with glowing breathing dot (protected/grace/blocked), gradient buttons + threshold-colored gradient usage bar, glass dialogs + splash, state-change glass toasts + two-tone AudioTrack chime + vibration (EN+FA, dashboard-parity tone pairs), entrance-once animations with animator-scale reduce-motion kill-switch. **REQUIRES installing the v1.3.5 APK** (worker untouched)
 
 ### Known limitations / accepted trade-offs
 - Config latency = poll interval (default ~30 s) + jitter when idle — by design (battery). With app v1.3.4+ AND the panel visible, hot-mode long-poll cuts command delivery to ~1.5 s (spec-005)
@@ -58,9 +59,10 @@ via `/speckit-specify`, not from memory.
 
 | # | Spec | Why | Source |
 |---|------|-----|--------|
-| A | `007-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
-| B | `008-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
-| C | `009-e2e-verification-v1.3.4` | Device re-tests of v1.3.4-test5 (AFTER installing it): instant commands + ⚡ chip (spec-005 US1/2), glass UI + toasts (spec-006), full unlock (spec-003), refresh-mid-command (spec-004), safe-unpair carry-over (spec-002) | specs 002–006 |
+| A | `008-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
+| B | `009-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
+| C | `010-e2e-verification-v1.3.5` | Device re-tests (AFTER installing v1.3.5-test6): instant commands + ⚡ chip (spec-005), glass UI + toasts on BOTH app and dashboard (spec-006/007), full unlock (spec-003), refresh-mid-command (spec-004), safe-unpair carry-over (spec-002) | specs 002–007 |
+| ✓ | ~~`007-mobile-glass-ui`~~ DONE (app v1.3.5, 2026-09-15) | Mobile glass super-UI matching the parents' panel | owner request ("super ui upgrade for the mobile app") |
 | ✓ | ~~`006-glass-dashboard`~~ DONE (worker-only, 2026-09-15) | Glass super-UI + confirmation toasts/chime/vibrate | owner request ("super ui upgrade") |
 | ✓ | ~~`005-instant-poll-hot-mode`~~ DONE (worker + app v1.3.4, 2026-09-15) | ~1.5 s command delivery while panel in use; battery-safe | owner request ("reduce the poll time") |
 | ✓ | ~~`004-dashboard-pending-truth`~~ DONE (worker-only, 2026-09-15) | Pending state survives refresh; old-app badge + degraded confirm; server-truth pending types | user re-test of v1.3.3 ("refresh and repeat") |

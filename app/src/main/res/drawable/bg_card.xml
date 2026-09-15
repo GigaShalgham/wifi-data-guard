@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Glass card: translucent vertical-gradient fill + 1dp luminous edge (spec-007).
+     Same resource name as the legacy flat card so the spinner etc. keep working. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#1A2232"/>
-    <corners android:radius="18dp"/>
-    <stroke android:width="1dp" android:color="#2A3550"/>
+    <corners android:radius="22dp"/>
+    <gradient
+        android:angle="270"
+        android:startColor="@color/g_glass"
+        android:endColor="@color/g_glass2"/>
+    <stroke android:width="1dp" android:color="@color/g_stroke"/>
 </shape>

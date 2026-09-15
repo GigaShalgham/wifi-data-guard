@@ -76,6 +76,7 @@ class WatchdogService : Service() {
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             val banner = Notification.Builder(c, "alerts")
                 .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setColor(0xFF6C7CFF.toInt())
                 .setContentTitle(title).setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setAutoCancel(true).setContentIntent(open).build()
@@ -340,6 +341,7 @@ class WatchdogService : Service() {
     private fun notifyAlert(title: String, text: String) {
         val banner = Notification.Builder(this, "alerts")
             .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setColor(0xFF6C7CFF.toInt())
             .setContentTitle(title)
             .setContentText(text)
             .setAutoCancel(true)
@@ -355,6 +357,7 @@ class WatchdogService : Service() {
     private fun notifLow(text: String): Notification =
         Notification.Builder(this, "watchdog")
             .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setColor(0xFF6C7CFF.toInt())
             .setContentTitle("Wi-Fi Data Guard").setContentText(text)
             .setOngoing(true).setContentIntent(openApp()).build()
 

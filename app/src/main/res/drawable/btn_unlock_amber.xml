@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unlock button while in grace: amber gradient pill (re-arms in m:ss). -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#402E1A00">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="26dp"/>
+            <gradient
+                android:angle="0"
+                android:startColor="#FFFFB300"
+                android:endColor="#FFFB8C00"/>
+        </shape>
+    </item>
+</ripple>

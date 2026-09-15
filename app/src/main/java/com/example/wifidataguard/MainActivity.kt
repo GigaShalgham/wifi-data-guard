@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
@@ -28,7 +27,6 @@ import android.widget.ProgressBar
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -44,7 +42,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvUsageBig: TextView
     private lateinit var tvUsageSub: TextView
-    private lateinit var tvStatusTitle: TextView
+    private lateinit var heroDot: View
+    private lateinit var heroHalo: View
+    private lateinit var heroState: TextView
     private lateinit var pbUsage: ProgressBar
     private lateinit var spUnlock: Spinner
     private lateinit var btnUnlock: Button
@@ -58,6 +58,11 @@ class MainActivity : AppCompatActivity() {
 
     private var uiTickCount = 0
     private var cachedChecklist = ""
+
+    // glass super-UI (spec-007)
+    private lateinit var glass: GlassUi
+    private var guardPrev: GuardStateUi.S? = null
+    private var suppressNextTransition = false
 
     private val unlockOptions = intArrayOf(5, 15, 30, 60, 0)   // minutes; 0 = until period end
 
@@ -90,10 +95,14 @@ class MainActivity : AppCompatActivity() {
         tvStatus      = findViewById(R.id.tvStatus)
         tvUsageBig    = findViewById(R.id.tvUsageBig)
         tvUsageSub    = findViewById(R.id.tvUsageSub)
-        tvStatusTitle = findViewById(R.id.tvStatusTitle)
+        heroDot       = findViewById(R.id.heroDot)
+        heroHalo      = findViewById(R.id.heroHalo)
+        heroState     = findViewById(R.id.heroState)
         pbUsage       = findViewById(R.id.pbUsage)
         spUnlock      = findViewById(R.id.spUnlock)
         btnUnlock     = findViewById(R.id.btnUnlock)
+
+        glass = GlassUi(this)
 
         val limMb = Prefs.limitBytes(this) / (1024 * 1024)
         if (limMb > 0) etLimit.setText(limMb.toString())
@@ -168,10 +177,31 @@ class MainActivity : AppCompatActivity() {
         }
 
         applyTexts()
+
+        // entrance-once (spec-007): staggered slide-fade on create; the 1 s tick never replays it
+        glass.entrance(listOf(
+            findViewById(R.id.headerRow),
+            findViewById(R.id.cardHero),
+            findViewById(R.id.cardSettings),
+            btnUnlock,
+            findViewById(R.id.cardTools)))
     }
 
-    override fun onResume() { super.onResume(); refreshUi(); uiTick.run() }
-    override fun onPause()  { super.onPause(); uiHandler.removeCallbacks(uiTick) }
+    override fun onResume() {
+        super.onResume()
+        glass.resumed = true
+        refreshUi(); uiTick.run()
+        glass.startHalo(heroHalo)
+    }
+    override fun onPause() {
+        super.onPause()
+        glass.resumed = false
+        uiHandler.removeCallbacks(uiTick); glass.stopHalo()
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::glass.isInitialized) glass.shutdown()
+    }
 
     private fun immediateReevaluate() {
         ContextCompat.startForegroundService(this,
@@ -235,7 +265,6 @@ class MainActivity : AppCompatActivity() {
         cbHard.text    = tr(T.mapHard)
         swMonitor.text = tr(T.mapEnforce)
         etLimit.hint   = tr(T.mapHint)
-        tvStatusTitle.text = tr(T.usage)
         rebuildSpinnerLabels()
     }
 
@@ -302,7 +331,7 @@ class MainActivity : AppCompatActivity() {
         val v = LayoutInflater.from(this).inflate(R.layout.dialog_pin, null)
         v.findViewById<TextView>(R.id.tvMsg).text = title
         val et = v.findViewById<EditText>(R.id.etPin)
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
             .setTitle(if (fa) "امنیت" else "Security")
             .setView(v)
             .setPositiveButton("OK") { _, _ ->
@@ -319,7 +348,7 @@ class MainActivity : AppCompatActivity() {
             if (fa) "$title — رمز جدید (حداقل ۴ رقم)"
             else "$title — choose new PIN (min 4 digits)"
         val eta = a.findViewById<EditText>(R.id.etPin)
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
             .setTitle(if (fa) "امنیت" else "Security").setView(a)
             .setPositiveButton(if (fa) "بعدی" else "Next") { _, _ ->
                 val p1 = eta.text.toString()
@@ -331,7 +360,7 @@ class MainActivity : AppCompatActivity() {
                 b.findViewById<TextView>(R.id.tvMsg).text =
                     if (fa) "تکرار رمز" else "Repeat the PIN"
                 val etb = b.findViewById<EditText>(R.id.etPin)
-                AlertDialog.Builder(this)
+                AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
                     .setTitle(if (fa) "تایید" else "Confirm").setView(b)
                     .setPositiveButton(if (fa) "ذخیره" else "Save") { _, _ ->
                         if (etb.text.toString() == p1) {
@@ -400,7 +429,7 @@ class MainActivity : AppCompatActivity() {
         askIgnoreBatteryOptimization()
         ContextCompat.startForegroundService(this,
             Intent(this, WatchdogService::class.java))
-        toast(if (fa) "محافظ فعال شد 🛡️" else "Guard armed 🛡️")
+        glass.toast(if (fa) "محافظ فعال شد 🛡️" else "Guard armed 🛡️", GuardStateUi.Chime.ARM)
         refreshUi()
     }
 
@@ -411,6 +440,7 @@ class MainActivity : AppCompatActivity() {
         OwnerEnforcer.relax(this)
         OwnerEnforcer.trySilentWifiOn(this)
         toast(if (fa) "محافظ خاموش شد" else "Guard disabled")
+        suppressNextTransition = true   // "Guard disabled" already says it — no contradictory hero toast
         refreshUi()
     }
 
@@ -420,9 +450,8 @@ class MainActivity : AppCompatActivity() {
             // clicking during grace = lock again NOW
             Prefs.setGraceUntil(this, 0L)
             Logger.d(this, "grace cancelled by user -> re-arm immediately")
-            immediateReevaluate()
-            toast(tr(T.lockNow))
-            refreshUi(); return
+            immediateReevaluate()   // transition detector announces + chimes (spec-007)
+            return
         }
         guarded(tr(T.unlock)) {
             // FIX: keep the latch and do NOT reset the counter — the grace window
@@ -433,9 +462,7 @@ class MainActivity : AppCompatActivity() {
             else AppClock.now() + mins * 60_000L
             Prefs.setGraceUntil(this, until)
             Logger.d(this, "UNLOCK: grace ${mins}min (0=period), latch kept")
-            immediateReevaluate()
-            toast(tr(T.unlockedMsg))
-            refreshUi()
+            immediateReevaluate()   // transition detector announces + chimes (spec-007)
         }
     }
     private fun endOfPeriod(c: android.content.Context): Long {
@@ -492,7 +519,7 @@ class MainActivity : AppCompatActivity() {
             2. Remove all Google accounts<br>
             3. Run:<br><code>$cmd</code>
         """.trimIndent()
-        AlertDialog.Builder(this).setTitle("Device Owner")
+        AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass).setTitle("Device Owner")
             .setMessage(Html.fromHtml(msg, Html.FROM_HTML_MODE_LEGACY))
             .setPositiveButton("OK", null).show()
     }
@@ -512,7 +539,7 @@ class MainActivity : AppCompatActivity() {
                 "Last sync: " + (if (mins < 1) "just now" else "$mins min ago") + "\n\n" +
                 "The parent can lock/unlock this device and change its\nlimit and settings from the web dashboard."
             val tv = TextView(this).apply { text = status; setPadding(pad, pad, pad, pad) }
-            AlertDialog.Builder(this)
+            AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
                 .setTitle(if (fa) "اتصال ابری" else "Cloud pairing")
                 .setView(tv)
                 .setPositiveButton(if (fa) "بستن" else "Close", null)
@@ -567,7 +594,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val dlg = AlertDialog.Builder(this)
+        val dlg = AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
             .setTitle(if (fa) "اتصال ابری" else "Cloud pairing")
             .setView(wrap)
             .setPositiveButton(if (fa) "اتصال" else "Pair", null)
@@ -586,7 +613,7 @@ class MainActivity : AppCompatActivity() {
             textSize = 11f; setPadding(24, 24, 24, 24)
         }
         sv.addView(tv)
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
             .setTitle(if (fa) "لاگ" else "Guard log")
             .setView(sv)
             .setPositiveButton(if (fa) "کپی" else "Copy") { _, _ ->
@@ -713,7 +740,7 @@ class MainActivity : AppCompatActivity() {
         v.findViewById<Button>(R.id.btnClearLog).setOnClickListener {
             Logger.clear(this); testLog("log cleared"); toast(if (fa) "پاک شد" else "Cleared") }
 
-        val dlg = AlertDialog.Builder(this)
+        val dlg = AlertDialog.Builder(this, R.style.ThemeOverlay_DataGuard_Glass)
             .setTitle("🧪 Test panel")
             .setView(v)
             .setPositiveButton(if (fa) "بستن" else "Close", null)
@@ -746,36 +773,58 @@ class MainActivity : AppCompatActivity() {
             "/ ${humanize(limit)} • ${pct(used, limit)}%"
         else tr(T.noLimit)
 
-        // progress bar + color
+        // glass hero state (same truth sources + precedence as the legacy status line — Art. VIII)
+        val state = GuardStateUi.stateOf(graceLeft, WatchdogService.latched)
+        when (state) {
+            GuardStateUi.S.GRACE -> {
+                heroState.text = tr(T.grace)
+                heroState.setTextColor(0xFFFFB300.toInt())
+                heroDot.setBackgroundResource(R.drawable.dot_grace)
+                heroHalo.setBackgroundResource(R.drawable.halo_grace)
+            }
+            GuardStateUi.S.BLOCKED -> {
+                heroState.text = tr(T.blocked)
+                heroState.setTextColor(0xFFFF5449.toInt())
+                heroDot.setBackgroundResource(R.drawable.dot_latched)
+                heroHalo.setBackgroundResource(R.drawable.halo_latched)
+            }
+            GuardStateUi.S.PROTECTED -> {
+                heroState.text = tr(T.protected_)
+                heroState.setTextColor(0xFF34D399.toInt())
+                heroDot.setBackgroundResource(R.drawable.dot_protected)
+                heroHalo.setBackgroundResource(R.drawable.halo_protected)
+            }
+        }
+
+        // gradient progress bar (drawable swap — a tint would flatten the gradient)
         if (limit > 0) {
             val p = ((used * 100.0 / limit).toInt()).coerceIn(0, 100)
+            pbUsage.progressDrawable = ContextCompat.getDrawable(this, when {
+                p >= 100 -> R.drawable.progress_red
+                p >= 80  -> R.drawable.progress_amber
+                else     -> R.drawable.progress_green
+            })
             pbUsage.progress = p
-            pbUsage.progressTintList = android.content.res.ColorStateList.valueOf(
-                when {
-                    p >= 100 -> Color.parseColor("#E53935")
-                    p >= 80  -> Color.parseColor("#FB8C00")
-                    else     -> Color.parseColor("#43A047")
-                })
         }
 
         // unlock button + status line
-        val statusLine = when {
-            graceLeft > 0 -> {
+        val statusLine = when (state) {
+            GuardStateUi.S.GRACE -> {
                 btnUnlock.text = tr(T.rearm).replace("%s", fmt(graceLeft))
-                btnUnlock.backgroundTintList = android.content.res.ColorStateList
-                    .valueOf(Color.parseColor("#FB8C00"))
+                btnUnlock.setBackgroundResource(R.drawable.btn_unlock_amber)
+                btnUnlock.setTextColor(0xFF2E1A00.toInt())
                 "⏳ ${tr(T.grace)}"
             }
-            WatchdogService.latched -> {
+            GuardStateUi.S.BLOCKED -> {
                 btnUnlock.text = tr(T.mapUnlock)
-                btnUnlock.backgroundTintList = android.content.res.ColorStateList
-                    .valueOf(Color.parseColor("#43A047"))
+                btnUnlock.setBackgroundResource(R.drawable.btn_unlock)
+                btnUnlock.setTextColor(0xFF06281A.toInt())
                 "🔒 ${tr(T.blocked)}"
             }
-            else -> {
+            GuardStateUi.S.PROTECTED -> {
                 btnUnlock.text = tr(T.mapUnlock)
-                btnUnlock.backgroundTintList = android.content.res.ColorStateList
-                    .valueOf(Color.parseColor("#43A047"))
+                btnUnlock.setBackgroundResource(R.drawable.btn_unlock)
+                btnUnlock.setTextColor(0xFF06281A.toInt())
                 "✅ ${tr(T.protected_)}"
             }
         }
@@ -789,6 +838,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         tvStatus.text = cachedChecklist + "\n" + statusLine
+
+        // state-change celebration (Art. VIII): fires ONLY on real transitions,
+        // exactly once, detected from the same truth the status line renders.
+        val prev = guardPrev
+        if (GuardStateUi.isTransition(prev, state) && !suppressNextTransition) {
+            val (en, faTxt) = GuardStateUi.label(prev!!, state)
+            glass.toast(if (fa) faTxt else en, GuardStateUi.chime(prev, state))
+        }
+        suppressNextTransition = false
+        guardPrev = state
     }
 
     private fun buildChecklist(): String = buildString {
@@ -821,5 +880,5 @@ class MainActivity : AppCompatActivity() {
         if (b >= 1073741824) String.format(java.util.Locale.US, "%.2f GB", b / 1073741824.0)
         else String.format(java.util.Locale.US, "%.1f MB", b / 1048576.0)
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
+    private fun toast(s: String) = glass.toast(s)
 }

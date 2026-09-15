@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Usage bar, normal (<80%): glass track + green gradient fill. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@android:id/background">
+        <shape android:shape="rectangle">
+            <corners android:radius="7dp"/>
+            <solid android:color="@color/g_track"/>
+        </shape>
+    </item>
+    <item android:id="@android:id/progress">
+        <clip>
+            <shape android:shape="rectangle">
+                <corners android:radius="7dp"/>
+                <gradient
+                    android:angle="0"
+                    android:startColor="#FF34D399"
+                    android:endColor="#FF2ECC71"/>
+            </shape>
+        </clip>
+    </item>
+</layer-list>

@@ -130,8 +130,14 @@ Requirements:
 
 ## Everyday use
 
-- The main screen shows a live checklist (PIN / usage access / owner / armed) and the
-  current usage bar, e.g. `412.3 MB / 750.0 MB (55%)`.
+- The main screen is a glass dark super-UI (v1.3.5, spec-007) matching the parents'
+  panel: translucent cards over an indigo/cyan glow, a **status hero** with a glowing
+  dot (green = protected, amber pulse = free time, red pulse = blocked), a gradient
+  usage bar and the live checklist (PIN / usage access / owner / armed), e.g.
+  `412.3 MB / 750.0 MB (55%)`.
+- Real state changes (unlock, re-lock, remote lock, re-arm) announce themselves with
+  a glass toast + two-tone chime + vibration (EN+FA) — the same tone pairs as the
+  parent dashboard.
 - **Unlock** — PIN → traffic flows for the chosen window → auto re-arm. "Lock again
   now" cancels the window immediately.
 - **Reset counter** — PIN-gated; useful when the billing period is not aligned with
@@ -385,6 +391,7 @@ is excluded from backups.
 
 | Version | Highlights |
 |---|---|
+| [v1.3.5](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.5) | Mobile glass super-UI (spec-007): the app gets the same design language as the parents' panel — glow background, glass cards, status hero with a glowing breathing dot (protected / free time / blocked), gradient buttons and usage bar, glass PIN/cloud/log dialogs, cold-start splash; state changes celebrate with glass toasts + two-tone chime + vibration (EN+FA); entrance-once ~300 ms animations that respect the system "remove animations" setting; zero behavior change to enforcement |
 | [v1.3.4](https://github.com/GigaShalgham/wifi-data-guard/releases/tag/v1.3.4) | Instant commands (spec-005): while the parent's panel is open, lock/unlock are delivered in ~1.5 s via hot-mode long-poll (server holds the poll, checks every 1.5 s); ⚡ fast chip on the card; battery-safe — hold only while the panel is visible, 30-min continuous cap, idle polling unchanged (~30 s); dashboard heartbeat pauses while the tab is hidden |
 | dashboard spec-006 (no APK needed) | Glass super-UI: frosted translucent cards over an indigo/cyan glow, sticky glass header, glowing badges, gradient buttons/bars; confirmation toasts with lock/unlock chimes + vibrate (EN+FA); calm ~300 ms animations (initial render only) with reduce-motion support |
 | dashboard spec-004 (no APK needed) | Pending truth + old-app honesty: the "waiting for device" state survives a manual refresh (no more re-tapping after F5); in-flight commands are visible from server truth in any tab; old phone apps (< v1.3.3) get a persistent "old phone app — full unlock needs v1.3.3+" badge and their full-unlock wait ends when the 15-minute window lands instead of freezing |

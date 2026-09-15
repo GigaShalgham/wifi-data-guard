@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:background="#0E1420">
+    android:layout_height="wrap_content">
 
     <LinearLayout
         android:orientation="vertical"
@@ -14,7 +13,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="11sp"
-            android:textColor="#FB8C00"
+            android:textColor="#FFFB8C00"
             android:text="TEST BUILD — virtual clock, usage injection and simulated offline are active. Not for real supervision."/>
 
         <TextView
@@ -25,7 +24,7 @@
             android:typeface="monospace"
             android:textSize="11sp"
             android:lineSpacingExtra="2dp"
-            android:textColor="#8A96B8"
+            android:textColor="@color/g_txt2"
             android:text="…"/>
 
         <!-- ============ TIME SCALE ============ -->
@@ -36,7 +35,7 @@
             android:textSize="11sp"
             android:letterSpacing="0.1"
             android:textAllCaps="true"
-            android:textColor="#8A96B8"
+            android:textColor="@color/g_txt2"
             android:text="⏩ Time scale (virtual clock)"/>
 
         <LinearLayout
@@ -47,23 +46,23 @@
 
             <Button android:id="@+id/btnTs1" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="1x"/>
             <Button android:id="@+id/btnTs10" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="10x"/>
             <Button android:id="@+id/btnTs60" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="60x"/>
             <Button android:id="@+id/btnTs600" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="600x"/>
             <Button android:id="@+id/btnTs3600" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="3600x"/>
         </LinearLayout>
 
@@ -75,15 +74,15 @@
 
             <Button android:id="@+id/btnJumpBack1h" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="⏪ -1h"/>
             <Button android:id="@+id/btnRollbackServer" android:layout_width="0dp" android:layout_weight="1.4"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#5A2A2A" android:textColor="#FFCDD2"
+                android:background="@drawable/btn_danger" android:textColor="#FFFFCDD2"
                 android:textSize="11sp" android:textAllCaps="false" android:text="⏪ below server (trip lock)"/>
             <Button android:id="@+id/btnTsSnap" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="🎯 snap real"/>
         </LinearLayout>
 
@@ -95,7 +94,7 @@
             android:textSize="11sp"
             android:letterSpacing="0.1"
             android:textAllCaps="true"
-            android:textColor="#8A96B8"
+            android:textColor="@color/g_txt2"
             android:text="💾 Usage injector (live counter)"/>
 
         <LinearLayout
@@ -106,19 +105,19 @@
 
             <Button android:id="@+id/btnAdd100" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="+100MB"/>
             <Button android:id="@+id/btnAdd500" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="+500MB"/>
             <Button android:id="@+id/btnNearLimit" android:layout_width="0dp" android:layout_weight="1.2"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="99% of limit"/>
             <Button android:id="@+id/btnUsage0" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="zero"/>
         </LinearLayout>
 
@@ -130,7 +129,7 @@
             android:textSize="11sp"
             android:letterSpacing="0.1"
             android:textAllCaps="true"
-            android:textColor="#8A96B8"
+            android:textColor="@color/g_txt2"
             android:text="☁ Cloud / fail-closed (real clock)"/>
 
         <LinearLayout
@@ -141,15 +140,15 @@
 
             <Button android:id="@+id/btnForcePoll" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#3A4A78" android:textColor="#E8ECF8"
+                android:background="@drawable/btn_cloud" android:textColor="@color/g_txt"
                 android:textSize="11sp" android:textAllCaps="false" android:text="Poll now"/>
             <Button android:id="@+id/btnSimOffline" android:layout_width="0dp" android:layout_weight="1.2"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#3A4A78" android:textColor="#E8ECF8"
+                android:background="@drawable/btn_cloud" android:textColor="@color/g_txt"
                 android:textSize="11sp" android:textAllCaps="false" android:text="Sim offline: OFF"/>
             <Button android:id="@+id/btnBackdate" android:layout_width="0dp" android:layout_weight="1.4"
                 android:layout_height="40dp"
-                android:backgroundTint="#5A2A2A" android:textColor="#FFCDD2"
+                android:background="@drawable/btn_danger" android:textColor="#FFFFCDD2"
                 android:textSize="11sp" android:textAllCaps="false" android:text="Backdate sync -20m (trip lock)"/>
         </LinearLayout>
 
@@ -161,11 +160,11 @@
 
             <Button android:id="@+id/btnTol1" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="tol = 1 min"/>
             <Button android:id="@+id/btnPoll15" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="poll = 15 s"/>
         </LinearLayout>
 
@@ -177,7 +176,7 @@
             android:textSize="11sp"
             android:letterSpacing="0.1"
             android:textAllCaps="true"
-            android:textColor="#8A96B8"
+            android:textColor="@color/g_txt2"
             android:text="📄 Logs"/>
 
         <LinearLayout
@@ -188,11 +187,11 @@
 
             <Button android:id="@+id/btnShareLog" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp" android:layout_marginEnd="4dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="Share log"/>
             <Button android:id="@+id/btnClearLog" android:layout_width="0dp" android:layout_weight="1"
                 android:layout_height="40dp"
-                android:backgroundTint="#2A3550" android:textColor="#C9D2E8"
+                android:background="@drawable/btn_glass" android:textColor="#FFC9D2E8"
                 android:textSize="11sp" android:textAllCaps="false" android:text="Clear log"/>
         </LinearLayout>
     </LinearLayout>
