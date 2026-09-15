@@ -260,6 +260,27 @@ Stack: Kotlin (built-in Kotlin support in AGP 9), Gradle 9.5 wrapper, minSdk 26,
 targetSdk 33, compileSdk 37. Mirror-first Maven repositories with official
 `google()`/`mavenCentral()` fallbacks.
 
+## Development process (spec-driven)
+
+All work on this repository — features, bugfixes, releases — follows
+[GitHub Spec Kit](https://github.com/github/spec-kit) spec-driven development
+(adopted 2026-09-15, mandatory per the project constitution in
+`.specify/memory/constitution.md`):
+
+```
+specify → clarify → plan → tasks → analyze → implement → converge
+```
+
+- `specs/` holds all feature specs; `specs/001-project-state-backfill/spec.md`
+  records the current deployed state and the prioritized roadmap — start there.
+- The scaffolding (`.specify/`, `.claude/skills/`) is plain markdown + bash, so
+  any AI coding agent can follow it without a specific tool; install the CLI
+  with `uv tool install specify-cli` (or run it zero-install via
+  `uvx --from specify-cli specify <cmd>`).
+- Core principles are codified in the constitution: fail-closed safety,
+  privacy by scope, bilingual truth, testable time (AppClock), control-channel
+  survival, signed reproducible releases.
+
 ## Project structure
 
 ```
