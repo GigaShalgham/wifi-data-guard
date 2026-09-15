@@ -30,7 +30,7 @@ var I18N = {
     grace: "grace",
     normal: "ok",
     lockNow: "Lock now",
-    unlockFull: "Unlock",
+    unlockNow: "Unlock",
     confirmUnlockFull: "Fully unlock this device? Internet stays open until you lock it again (or its data limit is reached). Device app v1.3.3+ required \u2014 older apps treat this as a 15-minute window.",
     pendingLock: "Locking\u2026",
     pendingUnlock: "Unlocking\u2026",
@@ -39,6 +39,7 @@ var I18N = {
     fastLink: "fast",
     toastLocked: "\u2713 Locked \u2014 confirmed by device",
     toastTimedFor: "\u2713 Unlocked for %d minutes",
+    toastQuick: "\u26a1 Quick unlock: %d min",
     toastOldApp: "\u2713 Unlocked (15 min) \u2014 old phone app",
     toastUnlocked: "\u2713 Unlocked \u2014 confirmed by device",
     settings: "Settings",
@@ -62,7 +63,8 @@ var I18N = {
     pickCustom: "Custom (minutes)",
     pickConfirm: "Unlock ⏱",
     pickCancel: "Cancel",
-    timedUnlock: "⏱ Timed unlock",
+    pickFull: "Full unlock \u2014 until you lock it again",
+    pickLongHint: "Tip: press and hold the Unlock button to instantly repeat %d min",
     offlineTol: "Offline tolerance (min)",
     audit: "Recent activity",
     noAudit: "No activity yet.",
@@ -98,7 +100,7 @@ var I18N = {
     grace: "مهلت",
     normal: "سالم",
     lockNow: "قفل فرمان",
-    unlockFull: "باز کردن قفل",
+    unlockNow: "باز کردن قفل",
     confirmUnlockFull: "این دستگاه کاملاً باز شود؟ اینترنت تا قفل بعدی (یا رسیدن به حد مصرف) باز می‌ماند. نیازمند اپ نسخهٔ ۱.۳.۳+ — نسخه‌های قدیمی‌تر آن را پنجرهٔ ۱۵ دقیقه‌ای می‌بینند.",
     pendingLock: "در حال قفل…",
     pendingUnlock: "در حال باز کردن…",
@@ -107,6 +109,7 @@ var I18N = {
     fastLink: "سریع",
     toastLocked: "✓ قفل شد — تأیید توسط دستگاه",
     toastTimedFor: "✓ باز شد برای %d دقیقه",
+    toastQuick: "⚡ باز کردن سریع: %d دقیقه",
     toastOldApp: "✓ باز شد (۱۵ دقیقه) — برنامهٔ گوشی قدیمی است",
     toastUnlocked: "✓ باز شد — تأیید توسط دستگاه",
     settings: "تنظیمات",
@@ -130,7 +133,8 @@ var I18N = {
     pickCustom: "دلخواه (دقیقه)",
     pickConfirm: "باز کن ⏱",
     pickCancel: "انصراف",
-    timedUnlock: "⏱ بازکردن زمان‌دار",
+    pickFull: "باز کردن کامل — تا قفل بعدی",
+    pickLongHint: "نکته: برای تکرار فوریِ %d دقیقه، دکمهٔ باز کردن را نگه دار",
     offlineTol: "تحمل آفلاین (دقیقه)",
     audit: "رفتار ماجرا",
     noAudit: "هنوز فعالیتی نیست.",
@@ -461,8 +465,8 @@ function deviceCard(d){
       : '<div class="sub" style="margin-top:8px">ℹ ' + esc(t("lastSeen")) + ': ' + esc(relTime(d.last_seen_at)) + '</div>') +
     '<div class="row" style="margin-top:12px">' +
       (lockedNow
-        ? '<button class="ok small" data-unlock-full="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("unlockFull")) + '</button>' +
-          '<button class="ghost small" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("timedUnlock")) + '</button>'
+        ? '<button class="ok small longable" data-unlock="' + d.id + '"' + (p ? " disabled" : "") + ' title="' +
+          esc(t("pickLongHint").replace("%d", lang === "fa" ? faNum(rememberedMins(d)) : String(rememberedMins(d)))) + '">' + esc(t("unlockNow")) + '</button>'
         : '<button class="danger small" data-lock="' + d.id + '"' + (p ? " disabled" : "") + '>' + esc(t("lockNow")) + '</button>') +
       '<button class="ghost small" data-settings="' + d.id + '">' + esc(t("settings")) + '</button>' +
     '</div>' +
@@ -504,7 +508,7 @@ function settingsPanel(d){
 
 function wireDevice(d){
   var q = function(sel){ return document.querySelector("[" + sel + '="' + d.id + '"]'); };
-  var lockBtn = q("data-lock"), unlockBtn = q("data-unlock"), fullBtn = q("data-unlock-full"),
+  var lockBtn = q("data-lock"), unlockBtn = q("data-unlock"),
       setBtn = q("data-settings"), revBtn = q("data-revoke"), saveBtn = q("data-save");
   if (lockBtn) lockBtn.onclick = function(){
     if (!confirm(t("confirmLock"))) return;
@@ -513,19 +517,24 @@ function wireDevice(d){
     updateDynamic();
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "lock" } }).then(trackRefresh);
   };
-  if (unlockBtn) unlockBtn.onclick = function(){
-    // spec-010 FR-002: the duration is picked AT THE POINT OF USE — the
-    // Settings field is gone; the picker seeds from the remembered choice
-    // (per device), the saved server setting, then 15
-    openPicker(d);
-  };
-  if (fullBtn) fullBtn.onclick = function(){
-    if (!confirm(t("confirmUnlockFull"))) return;
-    pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS, oldApp: appOld(d.report) };
-    savePend();
-    updateDynamic();
-    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { full: true } } }).then(trackRefresh);
-  };
+  if (unlockBtn) {
+    // spec-011 FR-001: ONE unlock button — tap opens the ordered picker
+    // (spec-010 ladder + full-unlock row). spec-011 FR-003: press-and-hold
+    // repeats the remembered minutes instantly; only the bounded,
+    // auto-relocking action sits on the fast gesture (Art. II spirit).
+    armLongPress(
+      unlockBtn,
+      function(){ openPicker(d); },
+      function(){
+        var mins = rememberedMins(d);
+        pend[d.id] = { type: "unlock", timed: true, mins: mins, until: Date.now() + PEND_TTL_MS };
+        savePend();
+        updateDynamic();
+        toast(t("toastQuick").replace("%d", lang === "fa" ? faNum(mins) : String(mins)), "ok");
+        api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: mins } } }).then(trackRefresh);
+      }
+    );
+  }
   if (setBtn) setBtn.onclick = function(){
     openSettings[d.id] = !openSettings[d.id];
     // spec-008 FR-002: closing drops the draft — reopening starts
@@ -585,6 +594,37 @@ function wireDevice(d){
   };
 }
 
+// spec-011 FR-003: long-press helper — after 550 ms of press, hold() fires
+// and the synthetic click that follows is swallowed; a shorter press runs
+// tap() on click. Pointer-events based: browsers without Pointer Events
+// keep plain taps (graceful degradation). Re-armed on every pointerdown.
+function armLongPress(btn, tap, hold){
+  var timer = null;
+  var down = function(){
+    if (timer) clearTimeout(timer);
+    btn.dataset.lp = "0";
+    timer = setTimeout(function(){
+      timer = null;
+      btn.dataset.lp = "1";
+      hold();
+    }, 550);
+  };
+  var up = function(){
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+  btn.addEventListener("pointerdown", down);
+  btn.addEventListener("pointerup", up);
+  btn.addEventListener("pointerleave", up);
+  btn.addEventListener("pointercancel", up);
+  btn.oncontextmenu = function(e){ e.preventDefault(); };
+  btn.onclick = function(){
+    var fired = btn.dataset.lp === "1";
+    btn.dataset.lp = "0";
+    if (fired) return;
+    tap();
+  };
+}
+
 // spec-010 FR-002: glass duration picker — chips 15/30/60/120 + custom
 // 1–480 (invalid falls back to 15). Confirm remembers the choice per
 // device and sends the unlock command with the picked minutes; the pend
@@ -609,6 +649,9 @@ function openPicker(d){
       '<label>' + esc(t("pickCustom")) + '</label>' +
       '<input type="number" id="pickCustomInput" min="1" max="480" inputmode="numeric" value="' +
         (presets.indexOf(seed) >= 0 ? "" : esc(String(seed))) + '">' +
+      '<div class="pickdiv"></div>' +
+      '<div class="pickfull" id="pickFull" role="button" tabindex="0">∞ ' + esc(t("pickFull")) + '</div>' +
+      '<div class="sub pickhint">💡 ' + esc(t("pickLongHint").replace("%d", lang === "fa" ? faNum(seed) : String(seed))) + '</div>' +
       '<div class="row" style="margin-top:14px;justify-content:flex-end">' +
         '<button class="ghost small" id="pickCancel">' + esc(t("pickCancel")) + '</button>' +
         '<button class="ok small" id="pickGo">' + esc(t("pickConfirm")) + '</button>' +
@@ -647,6 +690,23 @@ function openPicker(d){
     updateDynamic();
     api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { minutes: mins } } }).then(trackRefresh);
   };
+  // spec-011 FR-002: full unlock stays LAST and explicit — amber row,
+  // keyboard-operable, guarded by the same warning the old button had
+  var fullRow = document.getElementById("pickFull");
+  var doFull = function(){
+    if (!confirm(t("confirmUnlockFull"))) return;
+    close();
+    pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS, oldApp: appOld(d.report) };
+    savePend();
+    updateDynamic();
+    api("/api/devices/" + d.id + "/command", { method: "POST", body: { type: "unlock", payload: { full: true } } }).then(trackRefresh);
+  };
+  if (fullRow) {
+    fullRow.onclick = doFull;
+    fullRow.onkeydown = function(e){
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doFull(); }
+    };
+  }
 }
 
 function loadSpark(id){
@@ -803,7 +863,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v7";
+var SW_JS = `const CACHE = "dg-v8";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -931,6 +991,13 @@ button:disabled{opacity:.45;cursor:not-allowed;transform:none}
 .chip.on{background:linear-gradient(135deg,var(--acc),#4f46e5);border-color:transparent;
   box-shadow:0 4px 16px rgba(79,70,229,.35)}
 .picker label{font-size:12px;color:var(--mut);display:block;margin:4px 0 6px}
+.pickdiv{height:1px;background:var(--glass-brd);margin:16px 0 10px}
+.pickfull{cursor:pointer;font-size:14px;font-weight:600;text-align:center;color:#ffd9a3;
+  background:rgba(255,190,90,.08);border:1px solid rgba(255,190,90,.35);border-radius:14px;
+  padding:12px 14px;font-family:inherit}
+.pickfull:hover,.pickfull:focus-visible{background:rgba(255,190,90,.16);outline:none}
+.picker .pickhint{margin-top:10px;text-align:center}
+.longable{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 @keyframes pickIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
 .footer{text-align:center;color:var(--mut);font-size:12px;margin-top:28px}
 .langbtn{position:absolute;top:18px;inset-inline-end:16px}

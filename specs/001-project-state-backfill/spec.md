@@ -31,6 +31,7 @@ via `/speckit-specify`, not from memory.
 
 ### Cloud backend (Cloudflare Worker, separate from this repo)
 - **Live**: https://wifi-data-guard.gigaspaceturnip.workers.dev (D1 `dataguard`, KV `dataguard-kv`)
+- **Deployed as of 2026-09-16 (spec-011, SW dg-v8)**: one merged Unlock button per locked card with the ordered picker ladder (chips → custom → ∞ full-unlock row) + 550 ms press-and-hold quick unlock (remembered minutes); zero command/payload changes
 - **Source**: IN THIS REPO at `cloud/worker.js` since 2026-09-15 (spec-002) — recovered from the deployed bundle, validated byte-exact, deployable via `cloud/deploy.py`; never lose it again
 - **Endpoints**: pair (6-digit code), poll (auth via device token), dashboard (`/`, `/demo`), revoke
 - **Benchmark** (2026-09-15): poll p50 ≈ 42 ms / p95 ≈ 58 ms; pair p50 ≈ 515 ms
@@ -62,9 +63,10 @@ via `/speckit-specify`, not from memory.
 
 | # | Spec | Why | Source |
 |---|------|-----|--------|
+| ✓ | ~~`011-unlock-merge`~~ DONE (worker-only dg-v8, 2026-09-16) | "Unlock" + "⏱ Timed unlock" merged into ONE button: tap → ordered picker ladder (chips/custom/∞ full row), press-and-hold → instant remembered-minutes unlock | owner bug report ("can be merged with a special order") |
 | A | `013-cloud-security-hardening` | Remove public `/demo`; harden/remove the bootstrap on-screen sign-in link (leaked bootstrap email = takeover chain); commit-email hygiene (noreply) | Task 16 audit + user decision pending on email path |
 | B | `014-play-store-hardening` | allowBackup=false audit, exported components, targetSdk policy, privacy declaration | Task 8 notes |
-| C | `015-e2e-verification-v1.4.0` | Device re-tests (AFTER installing v1.4.0): app opens with tabs + ring + history chart, picker on the dashboard (chips/custom/remembered), settings has no unlock field, instant commands + ⚡ chip (spec-005), full unlock (spec-003), refresh-mid-command (spec-004), safe-unpair carry-over (spec-002), settings draft save (spec-008), launch stability (spec-009) | specs 002–010 |
+| C | `015-e2e-verification-v1.4.0` | Device re-tests (AFTER installing v1.4.0): app opens with tabs + ring + history chart, ONE merged Unlock button on the dashboard (tap → ladder incl. ∞ full row; hold → quick unlock, spec-011), settings has no unlock field, instant commands + ⚡ chip (spec-005), full unlock (spec-003), refresh-mid-command (spec-004), safe-unpair carry-over (spec-002), settings draft save (spec-008), launch stability (spec-009) | specs 002–011 |
 | ✓ | ~~`010-ux-revolution`~~ DONE (app v1.4.0 + worker dg-v7, 2026-09-16) | Unlock picker replaces the Settings field; three-tab app with ring + 7-day history chart + chips | owner verdict ("nothing revolutionary"; "Unlock Window input still there") |
 | ✓ | ~~`009-launch-crash-fix`~~ DONE (app v1.3.6, 2026-09-16) | v1.3.5 cold-start ArrayStoreException fixed + spinner re-entrancy hardening + permanent Robolectric launch smoke tests | user bug report ("didn't open and just crashed out") |
 | ✓ | ~~`008-settings-bugs`~~ DONE (worker-only, 2026-09-15) | Settings draft (no more reverting edits) + honest save feedback + unlock window wired to the timed-unlock button | user bug report (reverting values + dead Unlock Window) |

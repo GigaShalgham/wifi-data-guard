@@ -104,18 +104,24 @@ the hot window to `now + 120 s` (fast ack + report). The poll response carries
 Battery caps: hold only while hot, app-side 90 s re-arm + 30 min continuous cap.
 Older apps never send `wait` and are answered immediately, exactly as before.
 
-## Timed-unlock duration picker (spec-010)
+## Timed-unlock duration picker (spec-010, amended by spec-011)
 
-The Settings field **Unlock window (min)** is **gone from the UI**. The
-duration is now picked at the point of use: tapping **⏱ Timed unlock** on a
-locked device card opens a glass picker with chips 15/30/60/120 min plus a
-custom field (1–480, invalid → 15). The last confirmed choice is remembered
-per device in `localStorage["unlockMin:<id>"]`; the seed chain is
-remembered → saved `unlock_minutes` setting (`minsFor()`, clamp 1–480) → 15.
-The command still carries explicit `payload.minutes`, so old and new apps
-alike apply the picked window. `unlock_minutes` remains a valid config key
-(app-side default + API compatibility); it is simply no longer edited from
-the dashboard.
+The Settings field **Unlock window (min)** is **gone from the UI**, and as of
+spec-011 the two card buttons are merged into **one Unlock button**. Tapping
+it opens a glass picker with an ordered ladder: chips 15/30/60/120 min →
+custom field (1–480, invalid → 15) → a distinct amber **∞ Full unlock —
+until you lock it again** row (guarded by the same `confirm()` warning as the
+old full-unlock button, keyboard-operable). **Press-and-hold (550 ms)** the
+card's Unlock button fires an instant timed unlock with the remembered
+minutes — a "Quick unlock: N min" toast confirms, and the synthetic click
+after the hold is swallowed. Only the bounded, auto-relocking action sits on
+the fast gesture. The last confirmed choice is remembered per device in
+`localStorage["unlockMin:<id>"]`; the seed chain is remembered → saved
+`unlock_minutes` setting (`minsFor()`, clamp 1–480) → 15. Commands still
+carry explicit `payload.minutes` / `payload.full`, so old and new apps alike
+behave exactly as before (zero payload changes in spec-011).
+`unlock_minutes` remains a valid config key (app-side default + API
+compatibility); it is simply no longer edited from the dashboard.
 
 ## `/api/child/history` (spec-010)
 
