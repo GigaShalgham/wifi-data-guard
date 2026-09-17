@@ -25,6 +25,14 @@ object Prefs {
     fun graceUntil(c: Context): Long = sp(c).getLong("grace_until", 0L)
     fun setGraceUntil(c: Context, v: Long) = sp(c).edit().putLong("grace_until", v).apply()
 
+    // ---------- period (spec-012: restart-safe rollover) ----------
+    // Last period start the watchdog actually PROCESSED. Persisted so a
+    // service that comes up after midnight (reboot, dead battery, OEM killer,
+    // app update) still sees yesterday -> today as a rollover and releases a
+    // stale limit latch. 0 = never processed (first run / pre-spec-012 build).
+    fun periodStart(c: Context): Long = sp(c).getLong("period_start", 0L)
+    fun setPeriodStart(c: Context, v: Long) = sp(c).edit().putLong("period_start", v).apply()
+
     // baseline for reset button
     fun resetPeriod(c: Context): Long = sp(c).getLong("reset_period", 0L)
     fun setResetPeriod(c: Context, v: Long) = sp(c).edit().putLong("reset_period", v).apply()

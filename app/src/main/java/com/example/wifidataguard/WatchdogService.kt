@@ -90,6 +90,8 @@ class WatchdogService : Service() {
      *  fresh report reach the dashboard fast (control channel is VPN-exempt). */
     private val confirmPoll = Runnable { CloudLink.forcePoll(applicationContext) }
     private var lastPeriod = 0L
+    /** spec-012 D4: one log line per pending streak — not one per tick. */
+    private var rolloverPendingLogged = false
     private var lastNotifLine: String? = null
 
     private val wifiGuard = object : BroadcastReceiver() {
@@ -119,7 +121,15 @@ class WatchdogService : Service() {
             IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION),
             ContextCompat.RECEIVER_NOT_EXPORTED)
 
-        lastPeriod = Prefs.currentPeriodStart(this)
+        // spec-012: seed the rollover detector from the PERSISTED period, not
+        // "now" — the boundary must be processed identically whether the
+        // service lived across midnight or comes up after it (reboot, dead
+        // battery, OEM killer, app update). Absent key = first run / migration
+        // from a pre-spec-012 build: seed "now" (today's behavior, safe).
+        val persistedPeriod = Prefs.periodStart(this)
+        lastPeriod = if (persistedPeriod > 0) persistedPeriod
+                     else Prefs.currentPeriodStart(this)
+                         .also { Prefs.setPeriodStart(this, it) }
         latched = restoreLatched(this)
         LiveCounter.seedWith(
             DataStats.effectiveUsage(this, lastPeriod).coerceAtLeast(0))
@@ -173,24 +183,42 @@ class WatchdogService : Service() {
         // period rollover (midnight / month) -> fresh start AND clear grace.
         // Security: a cloud/offline/clock latch must SURVIVE the rollover —
         // otherwise waiting for midnight would defeat a remote lock.
+        // spec-012: the detector also fires AFTER a restart (persisted
+        // period_start), so a limit latch set yesterday releases even if the
+        // process was not alive across the boundary.
         val nowPeriod = Prefs.currentPeriodStart(this)
         if (nowPeriod != lastPeriod) {
-            lastPeriod = nowPeriod
             val reason = Prefs.latchReason(this)
-            if (reason == "" || reason == "limit") {
-                latched = false
-                persistLatched(this, false)
-                Prefs.setLatchReason(this, "")
-            } else {
-                Logger.d(this, "rollover: latch reason=$reason KEPT (not limit-based)")
-            }
-            Prefs.setGraceUntil(this, 0L)          // <<< FIX: kill "period-end" grace
-            // FIX: force-reset the counter; seedWith() never lowers a value, so
-            // yesterday's usage survived the rollover and re-latched instantly
+            val limitRelease = reason == "" || reason == "limit"
+            // Art. II fail-closed: a limit latch is released only on an
+            // AUTHORITATIVE usage read of the new period. Unreadable stats
+            // (revoked access / query failure) keep the latch and retry next
+            // tick — a restart must never become a free unlock.
             val fresh = DataStats.effectiveUsage(this, nowPeriod)
-            if (fresh >= 0) LiveCounter.resetTo(fresh)
-            else Logger.d(this, "rollover: usage stats unavailable, keeping live counter")
-            Logger.d(this, "new period -> grace + counter reset")
+            if (limitRelease && fresh < 0) {
+                if (!rolloverPendingLogged) {
+                    rolloverPendingLogged = true
+                    Logger.d(this, "rollover pending: usage stats unavailable " +
+                            "-> limit latch KEPT (fail-closed), retrying each tick")
+                }
+            } else {
+                rolloverPendingLogged = false
+                lastPeriod = nowPeriod
+                Prefs.setPeriodStart(this, nowPeriod)
+                if (limitRelease) {
+                    latched = false
+                    persistLatched(this, false)
+                    Prefs.setLatchReason(this, "")
+                } else {
+                    Logger.d(this, "rollover: latch reason=$reason KEPT (not limit-based)")
+                }
+                Prefs.setGraceUntil(this, 0L)          // <<< FIX: kill "period-end" grace
+                // FIX: force-reset the counter; seedWith() never lowers a value, so
+                // yesterday's usage survived the rollover and re-latched instantly
+                if (fresh >= 0) LiveCounter.resetTo(fresh)
+                else Logger.d(this, "rollover: usage stats unavailable, keeping live counter")
+                Logger.d(this, "new period -> grace + counter reset (restart-safe, spec-012)")
+            }
         }
 
         // FIX: read AFTER the rollover block, otherwise a fresh period is judged
