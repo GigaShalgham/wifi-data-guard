@@ -1,56 +1,97 @@
-# Implementation Plan: spec-012
+# Implementation Plan: Restart-Safe Period Rollover (spec-012)
 
-## Decisions (self-clarified from evidence)
+## Clarify (self, evidence-based — no open ambiguity for the owner)
 
-- **D1** Reconcile in `onCreate`, not the first cycle: earliest possible, one
-  place, runs on the main thread before any UI/service interaction; a second
-  run is a no-op (`latched=false`).
-- **D2** Strictly-greater period comparison — a rolled-back clock can never
-  fabricate a "new period" (Art. II).
-- **D3** `latch_period_start` is written at BOTH latch sites (`cycle()` limit
-  block and `latchCloud()`); harmless for non-limit reasons because
-  `RolloverPolicy` filters on reason.
-- **D4** Migration semantics: missing/0 `latch_period_start` = "older" — a
-  stuck limit latch on the owner's phone releases on the first start after
-  updating to v1.4.1 (no manual unblock needed).
-- **D5** Reconcile mirrors the live rollover exactly: unlatch, clear grace,
-  `resetTo(fresh effective usage)`; stats-unavailable keeps the counter.
-- **D6** `latch_reason` in the report is coarse enforcement state (Art. III
-  compliant); dashboard keys degrade silently when absent (old apps).
-- **D7** Worker edits via the established exactly-once-asserted Python edit
-  script + atomic write; verification via a new `verify_spec012.js` (compile
-  gate, unit tests, i18n parity, regression markers, dg-v9).
-- **D8** App edits direct in Kotlin; gates: `./gradlew test` (existing 21 +
-  new RolloverPolicy 5 + HistoryUi mapping 2 = 28 tests), then assembleRelease
-  + assembleQa, apksigner verify, badging.
-- **D9** Release train: v1.4.1 (versionCode 12) + QA v1.4.1-test9; GitHub
-  Releases via the established release-script pattern; worker deployed via
-  `cloud/deploy.py --token-file`; SW dg-v9.
-- **D10** No command is ever sent to the real device for testing; dashboard
-  smoke (if any) uses `/demo` sims only, then revoke + forget, audit-verified.
+The owner's question ("do we still have that bug?") was answered from code
+before planning; the fix scope was decided as follows:
 
-## Verification gates
+- **Q1: Which half of the v1.2 report is still alive?**
+  Evidence: spec-008 fixed the settings-draft bug (worker dg-v6, live); the
+  picker (dg-v7) and merged button (dg-v8) replaced the flow entirely and were
+  e2e-verified. The rollover release, however, still depends on an in-memory
+  `lastPeriod` seeded from "now" at service creation (WatchdogService.kt:122)
+  ⇒ only the "won't unlock tomorrow" half is alive. **Scope = rollover only.**
+- **Q2: Why not also add a down-release invariant (`used < limit` ⇒ unlatch)?**
+  It would fix the sibling annoyance "parent raises the limit while latched,
+  kid stays locked", but after a restart the live counter is 0 until seeded,
+  so a naive invariant fails OPEN when usage stats are unreadable (revoked
+  permission). Doing it safely needs a counter-authority flag — a separate
+  design. **Deferred; documented as a known behavior, not part of spec-012.**
+- **Q3: Retry-loop or single-shot when stats are unavailable at the boundary?**
+  Single-shot (persist period, keep latch, wait for next boundary) would leave
+  a transient midnight stats hiccup locking the kid for a whole extra day.
+  Retry-every-tick self-heals within seconds of stats recovery and costs one
+  binder call/second only in the pending state. **Retry chosen (FR-004).**
+- **Q4: Direction-aware rollover (`nowPeriod > lastPeriod` only)?**
+  Rejected — it would break the legitimate monthly-toggle re-evaluation
+  (period start moves backward mid-month) and changes continuous-run behavior.
+  The `!=` trigger is kept; clock-backward self-corrects by re-latching on the
+  larger usage window (see spec failure mode 3).
 
-1. `./gradlew test` — all green (28 tests expected).
-2. `node --check cloud/worker.js`.
-3. `node scripts/verify_spec012.js` — DASHBOARD_JS compile gate; `pendConfirmed`
-   unit vectors incl. degraded full-unlock + old-app + timed; `RolloverPolicy`
-   parity vectors (JS mirror of the Kotlin cases); i18n EN/FA parity +
-   retired-key check; marker sweep (dg-v9, latch_reason whitelist, revoke
-   cleanup SQL, dead-check removed); spec-004/005/008/010/011 regression
-   markers.
-4. Robolectric cold-start gates stay green (part of gate 1).
-5. Live probes after deploy: `/` 200, `/app.js` markers, SW dg-v9, unauth 401s.
-6. Read-only D1 probe post-deploy: worker healthy; queue still clean.
+## Decisions
 
-## Risks
+- **D1 — Persisted period, single source of truth**: new pref `period_start`
+  (`Prefs.periodStart/setPeriodStart`). `WatchdogService.onCreate` loads it;
+  `0` (absent) ⇒ seed+persist `currentPeriodStart()` (identical to today on
+  the first run after update — safe migration, fail-closed).
+- **D2 — Rollover processing advances the persisted period only when fully
+  resolved** (security latch ⇒ always resolvable; limit latch ⇒ resolvable
+  only with an authoritative stats read). This is what makes the retry loop
+  possible without re-processing already-resolved boundaries.
+- **D3 — Authoritative-read gate (Art. II)**: `DataStats.effectiveUsage >= 0`
+  is the only acceptable proof that a fresh period is genuinely under budget.
+  Anything else keeps the latch.
+- **D4 — Pending log throttle**: one log line per pending streak
+  (`rolloverPendingLogged` flag), reset on resolution — View logs stay
+  readable during a long outage.
+- **D5 — onCreate seeding order unchanged**: `LiveCounter.seedWith(
+  effectiveUsage(persistedPeriod).coerceAtLeast(0))` — with a persisted
+  yesterday this seeds high, then the first cycle's rollover resets to the
+  fresh period. The high value is never evaluated against the limit (the
+  rollover runs before the limit check in the same cycle) — verified by test.
+- **D6 — Test vehicle**: new `RolloverRestartTest` (Robolectric, sdk 34,
+  GuardApp) driving the REAL service (`buildService().create().startCommand()`
+  + looper idle). A test-local `@Implements(NetworkStatsManager::class)` shadow
+  returns a real empty `NetworkStats.Bucket` (authoritative 0 bytes) with a
+  `failQueries` knob for the fail-closed case. Companion/static state is
+  re-seeded per test via prefs before `create()`.
+- **D7 — Versioning**: app v1.4.1, versionCode 12, QA suffix `-test9` tag.
+  `CloudLink` UA strings bumped `DataGuard-Android/1.4.0` → `1.4.1`. No worker
+  change (Art. XI: APP UPDATE REQUIRED).
+- **D8 — Release gate**: full unit suite (incl. LaunchSmokeTest fresh+armed,
+  TabSwitchSmokeTest, HistoryUiTest, GuardStateUiTest, NEW
+  RolloverRestartTest) must be green before assembleRelease/assembleQa;
+  apksigner verify + badging (12 / 1.4.1 / 1.4.1-test) + UA-in-dex check.
 
-- R1 Reconcile could free a latch that a parent deliberately set "cloud" —
-  impossible: reason filter + unit tests.
-- R2 A phone left dead for weeks crosses a MONTH boundary — period start still
-  monotonic per D2; releases once (correct: quota reset).
-- R3 `monthly` period latched mid-month, phone dies, restarts same month —
-  period equal → no release (correct: same period, still over limit).
-- R4 Worker upload fails mid-flight — atomic PUT; dg-v8 remains live until
-  success; probe before/after.
-- R5 FA copy quality — reviewed for parity (Art. V); native-reader phrasing.
+## Risks & mitigations
+
+| Risk | Mitigation |
+|---|---|
+| Retry loop spams binder/log | Log once per streak; query throws fast when revoked; loop only runs while pending |
+| Migration leaves currently-stuck devices stuck one more day | Disclosed in release note + spec FM5; next boundary or one manual toggle clears |
+| Robolectric shadow drift | Shadow is test-local, minimal surface (one method), no reliance on Robolectric internals |
+| Regression in live rollover | Rollover block restructured but branch-equivalent for the stats-OK path; guarded by T1–T4 + existing suite |
+
+## Verification matrix
+
+- T1 restart-after-midnight + limit latch ⇒ releases (US1)
+- T2 restart-after-midnight + cloud latch ⇒ kept, period still advances (US2)
+- T3 same-day restart ⇒ no rollover, latch kept (fail-closed; documents FM5)
+- T4 monthly period ⇒ same-month restart keeps latch (US4)
+- T5 stats-unavailable at boundary ⇒ latch kept, `period_start` NOT advanced,
+  retry stance proven (US3)
+- T6 first-run migration: `period_start` absent ⇒ seeded to now, no rollover
+- Full existing suite stays green (US4)
+
+
+## v1.4.2 Amendment decisions (D11–D14)
+- **D11** Keep the released v1.4.1 rollover mechanism (persisted
+  `period_start` + fail-closed stats gate); the second session's overlapping
+  RolloverPolicy design is dropped at merge.
+- **D12** Unstick = seed `lastPeriod = 0` for a restored limit latch with no
+  processed-period record; safety comes from the v1.4.1 gate itself (fresh
+  authoritative read or keep latch) plus same-tick re-latch on real usage.
+- **D13** Worker ships as dg-v9 with report `latch_reason` (old apps simply
+  don't send it — every new dashboard path degrades to today's behavior).
+- **D14** Version path: v1.4.1 already released (versionCode 12) → amendment
+  is v1.4.2 (versionCode 13) so Android offers a real update.

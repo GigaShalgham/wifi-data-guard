@@ -1,183 +1,246 @@
-# Feature Specification: Deep-Scan Fixes — Restart-Safe Rollover + Honest Full Unlock (spec-012)
+# Feature Specification: Restart-Safe Period Rollover — the Latch Must Release Tomorrow (spec-012)
 
 **Feature Branch**: `012-restart-safe-rollover`
 
-**Created**: 2026-09-18
+**Created**: 2026-09-17
+
+**Status**: Implemented
+
+**Input**: Owner report: "I found a bug in real use of version 1.2 and I want to
+know still we have that bug in the latest version? and that is it won't unlock
+over time or tomorrow and I have to turn the enforce limit off and on again."
+
+## Problem Statement
+
+The owner's v1.2 report contains TWO distinct defects; this spec addresses the
+one that is still alive in the current build (app v1.4.0 / worker dg-v8):
+
+1. **"Won't unlock over time"** — the timed unlock was ineffective in the v1.2
+   era. **Already fixed**: spec-008 (settings draft bug, worker dg-v6), then
+   superseded by the duration picker (spec-010, dg-v7) and the merged unlock
+   button (spec-011, dg-v8). Verified end-to-end on the live worker. NOT the
+   subject of this spec.
+
+2. **"Won't unlock tomorrow"** — after the daily limit latches the device, the
+   lock promise shown to the kid is *"Internet is locked until tomorrow"*
+   (WatchdogService latched-notification). But the release at the day boundary
+   only happens if the watchdog **process runs continuously across midnight**.
+   `lastPeriod` — the in-memory variable that detects
+   `nowPeriod != lastPeriod` — is seeded in `onCreate()` from
+   `Prefs.currentPeriodStart()` (i.e. **"now" at service start**, not the period
+   the latch belongs to) and is never persisted.
+
+   Whenever the process is not alive across the boundary — phone rebooted
+   overnight, battery died, OEM task killer, force-stop, app update, or the
+   phone simply being OFF at midnight and turned on next morning (BootReceiver
+   restarts the service after the boundary) — the restarted service sees
+   `nowPeriod == lastPeriod` forever. The rollover block never runs; the
+   persisted `latch_reason="limit"` latch survives **every following day**,
+   because the limit check in `cycle()` only ever *latches*
+   (`if (!latched && !grace && used >= limit)`), never releases.
+
+   Field signature: the device shows "LIMIT REACHED (~0 MB used)" — today's
+   fresh counter is far below the limit, yet the lock persists. The only
+   escapes are the parent toggling the enforce (monitoring) switch off/on —
+   `disableEverything()` calls `WatchdogService.unlatch()` — pressing Reset,
+   or a timed/full unlock, which for a `limit` latch grants at best a grace
+   window that re-arms on expiry. This is exactly the workaround the owner
+   described.
+
+## User Scenarios & Testing *(mandatory)*
+
+### User Story 1 - Overnight restart still unlocks in the morning (Priority: P1)
+
+**As a** parent,
+**when** my kid's phone restarts, reboots, updates, runs out of battery, or is
+simply powered off at midnight and turned on the next morning while latched for
+the daily limit,
+**then** within one watchdog tick (~1 s) of the guard coming back up, the
+yesterday-limit latch releases automatically: the status line returns to normal
+usage tracking, the notification no longer says LIMIT REACHED, Wi-Fi/VPN
+enforcement lifts, and the fresh day's budget applies — **without me toggling
+the enforce switch off and on**.
+
+### User Story 2 - Security latches still survive the boundary (Priority: P1)
+
+**As the** owner,
+**when** the device is latched for a **cloud** ("Locked by parent"),
+**offline** (fail-closed) or **clock** (tamper) reason and the process restarts
+across midnight,
+**then** the latch is **kept** (fail-closed, Art. II): a restart must never
+become a free unlock for security locks. Only remote full-unlock (cloud/offline
+reasons) or the parent PIN path releases those, exactly as today.
+
+### User Story 3 - Fail-closed when usage stats are unavailable (Priority: P1)
+
+**As the** owner,
+**when** the guard restarts after midnight but usage-access is revoked or the
+NetworkStats query fails,
+**then** the limit latch is **NOT** released (a restart plus revoked stats must
+not become a free unlock — Art. II), the guard retries the rollover every tick,
+and it self-heals the moment stats become readable again (permission re-granted
+or transient failure cleared).
+
+### User Story 4 - Nothing else changes (Priority: P1)
+
+**As the** owner,
+**every** existing behavior is preserved: continuous-run rollover (live
+midnight crossing) identical; monthly periods stable across same-month
+restarts; grace windows, PIN unlock, cloud commands, hot polling (spec-005),
+dashboard/worker wire format — untouched. Devices updating from any older
+version migrate safely (missing pref key ⇒ today's behavior on first run, fix
+applies from the next boundary onward).
+
+## Requirements
+
+### Functional — Android app only (no worker/dashboard change)
+
+- **FR-001**: Persist the last period start the watchdog actually processed:
+  new pref `period_start` (`Prefs.periodStart` / `Prefs.setPeriodStart`).
+- **FR-002**: `WatchdogService.onCreate` seeds its rollover detector
+  (`lastPeriod`) from the **persisted** `period_start`; when the key is absent
+  (first run / migration from older builds) it seeds and persists the current
+  period — behaviorally identical to today for that first run (safe migration).
+- **FR-003**: When `cycle()` observes `nowPeriod != lastPeriod` (live crossing
+  **or** restart-after-boundary), it processes the rollover exactly as today
+  for security latches (reasons `cloud`/`offline`/`clock`/`unpaired` are KEPT)
+  and additionally persists the new `period_start`.
+- **FR-004**: The `""`/`limit`-latch release at rollover is gated on an
+  **authoritative usage read**: `DataStats.effectiveUsage(nowPeriod) >= 0`.
+  If stats are unavailable, the latch is kept and the rollover is retried on
+  every tick (self-heal); the pending state is logged once per streak (not
+  once per tick) so View logs stay readable. `period_start` is only advanced
+  once the rollover fully resolves.
+- **FR-005**: In the restart case the live counter is seeded (as today) from
+  `effectiveUsage(persistedPeriod)` in `onCreate`; the rollover then resets it
+  to `effectiveUsage(nowPeriod)` — unchanged code path, now also correct when
+  the boundary was crossed while dead.
+- **FR-006**: Grace semantics at the boundary are unchanged (grace force-cleared
+  when a rollover processes; a grace window that spans a restart keeps working
+  because `grace_until` is persisted).
+- **FR-007**: Zero changes to: cloud commands/payloads, D1, worker routes,
+  dashboard, PIN flow, VPN control channel exemption (Art. VII), i18n strings
+  (no new user-facing strings — the existing notification already promises
+  "locked until tomorrow"; this spec makes that promise true).
+
+### Non-functional
+
+- No new permissions, no new dependencies, no background-scheduling changes
+  (no AlarmManager needed: the 1 s tick + START_STICKY + BootReceiver already
+  restart the service; the fix is purely state-derivation logic).
+- The per-tick retry in the stats-unavailable state costs one NetworkStats
+  binder call per second only while a limit latch is pending release with
+  unreadable stats — acceptable vs a 1 s tick that already polls TrafficStats.
+- Robolectric release gate (spec-009): a new `RolloverRestartTest` drives the
+  real `WatchdogService` cold start in the stuck state and must pass before any
+  APK ships.
+
+## Failure Modes Analyzed
+
+1. **Free unlock via revoked stats + reboot** — a restart seeds the counter
+   from stats; if stats are unreadable the naive release would unlatch on
+   `0 < limit`. Guard: FR-004 gates the release on `effectiveUsage >= 0`;
+   pending state stays latched and retries. Tested (T5).
+2. **Free unlock via clock-forward** — setting the clock +1 day advances the
+   period and releases a limit latch with a ~0-usage read. **Pre-existing**
+   (the live rollover has the same property today) and **out of scope**; a
+   server-time-authoritative period is the fix and belongs to the upcoming
+   security spec (roadmap 013). Documented here so it is not forgotten.
+3. **Clock-backward while dead** — restart with `nowPeriod < persisted`:
+   `!=` fires, the release would unlatch, but the counter is reset to
+   `effectiveUsage(earlier period)` which includes MORE usage, so the limit
+   check re-latches within the same tick (self-correcting). Paired devices
+   additionally have the server-time `clock` latch. Unchanged vs today.
+4. **Monthly toggle mid-period** — switching daily↔monthly legitimately moves
+   `currentPeriodStart` (possibly backward); the `!=` trigger treats it as a
+   boundary and re-evaluates the budget from the new period start — identical
+   to today's continuous behavior; `period_start` follows. Unchanged.
+5. **Migration from old builds** — `period_start` absent ⇒ FR-002 seeds "now":
+   a device that is already stuck at update time stays stuck until the NEXT
+   boundary (or one manual off/on). Disclosed in the release note; fail-closed
+   bias preferred over a risky one-shot migration heuristic.
+6. **Kid opens app while service dead** — MainActivity does not start the
+   watchdog; nothing enforces while dead. On the next service start (boot,
+   START_STICKY revive, parent action) the rollover processes. Unchanged
+   exposure, now with a correct outcome at the next start.
+7. **Robolectric stats** — the test JVM has no real NetworkStats; a test-local
+   `@Implements(NetworkStatsManager::class)` shadow returns a real empty
+   `Bucket` (0 bytes = authoritative) and can be switched to throw (failure
+   simulation) so both the release and the fail-closed path are testable.
+
+## Art. XI Disclosure (delivered)
+
+**APP UPDATE REQUIRED** — install `DataGuard-v1.4.1-release.apk` (versionCode
+12) over v1.4.0; settings, PIN and pairing survive the update. **Worker and
+dashboard: UNTOUCHED** — no deploy, no reload, dg-v8 stays. Devices already
+stuck at update time clear on the next midnight boundary or one final
+enforce-off/on toggle (see Failure Mode 5).
+
+
+---
+
+# v1.4.2 Amendment — Deep-Scan Fixes (2026-09-18, second session)
 
 **Status**: Implemented
 
 **Input**: Owner directive: "Make a deep scan of the full system and debug
-anything we didn't see until now and use every tool." The deep scan (full code
-review of all 20 Kotlin files + the 1,797-line worker, 21/21 unit tests,
-`node --check`, live worker probes, read-only D1 forensics) produced the
-findings below. This spec fixes the code defects; one operational finding
-(revoked pairing) is disclosed in the converge notes, not coded.
+anything we didn't see until now and use every tool." A full-system scan
+(all 20 Kotlin files, the 1,797-line worker, live probes, read-only D1
+forensics) ran the day after v1.4.1 shipped. Reconciliation note: this
+session started from a pre-v1.4.1 context and produced an overlapping
+RolloverPolicy design; the merge KEEPS the released v1.4.1 mechanism and adds
+the non-overlapping fixes below as **v1.4.2 (versionCode 13) + worker dg-v9**.
 
-## Findings (evidence-based)
+## Findings
 
-### F1 — CRITICAL, the v1.2 "won't unlock tomorrow" bug is STILL PRESENT
+- **F3 (MEDIUM, Art. VIII)** — full unlock on a limit-locked phone: the app
+  degrades `{full:true}` to a 15-minute window (correct, Art. II) but the
+  report had no `latch_reason`, so the dashboard never confirmed the pend
+  (90 s "Unlocking…" then silence) and the confirm text over-promised
+  ("stays open until you lock it again").
+- **F4 (LOW)** — `HistoryUi.weekdayLabel` FA array misordered: every Farsi
+  weekday glyph off by two days (Sunday showed جمعه). The test only checked
+  distinctness.
+- **F5 (LOW)** — undelivered commands for revoked devices never cleaned
+  (command #7 stuck 139 h; unbounded growth).
+- **F6 (LOW)** — dead `attempts >= 10` check in `handleChildPair` (never
+  incremented by design; reads as a security control but is not one).
+- **F2 (OPERATIONAL, disclosed)** — D1 shows the real phone's pairing was
+  revoked Sep 15 21:34; remote control inert until re-paired.
+- **FM5 AMENDED** — v1.4.1 chose "stuck stays stuck until next boundary".
+  v1.4.2 implements the one-shot unstick SAFELY: a restored limit latch with
+  no processed-period record makes the first cycle process the boundary;
+  genuinely fresh usage releases it (the stuck phone self-unblocks), same-day
+  over-limit usage re-locks on the SAME tick (counter re-seeds from the
+  current period — never a free unlock), unreadable stats keep it latched
+  (the v1.4.1 fail-closed gate). Guarded by rewritten T6 + new T7.
 
-Owner report (v1.2 era): *"it won't unlock over time or tomorrow and I have to
-turn the enforce limit off and on again."*
+## v1.4.2 Functional Requirements
 
-Root cause (code): `WatchdogService.cycle()` clears a **limit** latch only in
-the period-rollover branch, which compares `Prefs.currentPeriodStart()` against
-the **in-memory** `lastPeriod` (initialized in `onCreate` to the *current*
-period). `latched` is **persisted**. If the process is not alive across
-midnight — reboot, OEM battery killer, `START_STICKY` restart landing after
-00:00, app update (`MY_PACKAGE_REPLACED`) — the restarted service restores
-`latched=true` with reason `limit`, `lastPeriod` already equals the new period,
-the rollover branch never fires, and the device stays locked for the whole new
-period despite the quota having reset.
-
-Field evidence (read-only D1): device 7 (the real phone, v1.3.1-test era) shows
-a 41.8-hour report gap crossing midnight (Sep 13 → Sep 15); the owner's
-workaround — toggling "Enforce limit" off/on — is exactly the
-`disableEverything()` → `WatchdogService.unlatch()` path, the only manual
-unlatch besides "Reset counter".
-
-### F3 — MEDIUM, dashboard truth gap on full unlock (Art. VIII)
-
-When the phone is latched with reason `limit` (the common case), the app
-correctly degrades a `{full:true}` unlock to a 15-minute grace window
-(constitution Art. II — limit latches survive remote commands) and says so
-**locally**. But the device report has no `latch_reason`, so the dashboard:
-(a) shows the pend chip "Unlocking… waiting for device" for the full 90 s and
-never confirms (`pendConfirmed` waits for `!rep.latched`, which stays true);
-(b) the `confirmUnlockFull` text promises "Internet stays open until you lock
-it again (or its data limit is reached)" — over-promising vs. the actual
-15-minute window.
-
-### F4 — LOW, FA weekday labels wrong in the history chart
-
-`HistoryUi.weekdayLabel` indexes `arrayOf("ج","ش","ی","د","س","چ","پ")` with
-Java's `DAY_OF_WEEK-1` (1=Sun..7=Sat): every Persian glyph is off (Sunday shows
-ج = Friday). EN labels are correct. The unit test only asserted 7 distinct
-glyphs — the mapping slipped through.
-
-### F5 — LOW, undelivered commands for revoked devices never cleaned
-
-Cleanup deletes only `acked_at IS NOT NULL AND created_at < t-7d`. A revoked
-device can never poll, so its undelivered commands stay forever (command #7:
-config, stuck 139 h). One row exists today; unbounded growth over time.
-
-### F6 — LOW, dead anti-brute-force check
-
-`handleChildPair` checks `row.attempts >= 10` but nothing ever increments
-`attempts` (lookup is by code hash; a wrong guess maps to no row). The real
-guard is the 30/h/IP rate limit. Dead code that reads as a security control
-but is not one.
-
-### F2 — OPERATIONAL (no code): real phone unpaired
-
-D1 shows ALL devices revoked, including the real phone (device 18, SM-A546E,
-revoked Sep 15 21:34 during owner testing). Remote lock/unlock/config is inert
-until the phone is re-paired (new code). Disclosed in the Art. XI verdict.
-
-## User Scenarios & Testing *(mandatory)*
-
-### User Story 1 — The next day unlocks itself (Priority: P1)
-
-**As a** parent whose kid hit the daily limit yesterday,
-**when** the phone restarts (reboot, battery-killer, app update) any time after
-midnight,
-**then** the watchdog reconciles on startup: a **limit** latch from an older
-period is cleared, the counter resets to the fresh period's usage, and the
-internet works — no "enforce limit" toggling, no PIN dance.
-
-Guards: a latch with reason `cloud`/`offline`/`clock`/`unpaired` is NEVER
-cleared by the reconcile (same rule as the live rollover — Art. II); a clock
-rolled **back** past the latch (currentPeriodStart ≤ latchPeriod) is NOT an
-unlatch (strictly-greater comparison only).
-
-### User Story 2 — Honest full unlock on the dashboard (Priority: P2)
-
-**As a** parent pressing "∞ Full unlock" on a phone locked by its data limit,
-**I see** a warning that tells the truth ("its limit lock stays; it gets a
-timed window instead"), **and when** the device confirms, the toast says what
-actually happened ("15-min window granted — limit lock kept"), not a silent
-90-second "Unlocking…" chip. Old apps (no `latch_reason` in report) keep the
-exact current behavior.
-
-### User Story 3 — Correct FA chart + clean queue (Priority: P3)
-
-FA weekday glyphs match the actual weekday (Sun=ی … Sat=ش). Revoking a device
-also drops its undelivered commands; the sweep keeps the queue clean. The dead
-`attempts` check is removed (zero behavior change).
-
-### User Story 4 — Nothing else regresses (Priority: P1)
-
-21/21 existing tests stay green; Robolectric cold-start gates (fresh + armed)
-pass; `node --check` passes; DASHBOARD_JS compile gate passes; i18n EN/FA
-parity maintained; spec-004/005/008/010/011 regression markers intact.
-
-## Functional Requirements
-
-### App (v1.4.1, versionCode 12)
-
-- **FR-001** Persist `latch_period_start` (epoch ms of `currentPeriodStart()`
-  at latch time) at every latch site: the limit-hit block in `cycle()` and
-  `latchCloud()`.
-- **FR-002** On `WatchdogService.onCreate` (after `restoreLatched`), reconcile
-  via FR-003 policy: unlatch + clear grace + `LiveCounter.resetTo(fresh usage)`
-  + log `reconcile: latch older than current period -> released`. Migration:
-  absent/zero `latch_period_start` counts as "older" (a stuck limit latch from
-  any previous version releases on first start after updating).
-- **FR-003** New pure object `RolloverPolicy` (no Android imports) with
-  `shouldRelease(reason, latchPeriodStart, currentPeriodStart): Boolean` =
-  `reason in {"", "limit"} && currentPeriodStart > latchPeriodStart`.
-- **FR-004** `CloudLink.buildReport` adds `latch_reason` (the coarse string
-  already shown on the local status line; Art. III-compliant enforcement
-  state, no PII).
-- **FR-005** `HistoryUi` FA array reordered to Sun..Sat =
-  `["ی","د","س","چ","پ","ج","ش"]`; `HistoryUiTest` extended to assert the real
-  weekday of known dates in both languages.
-- **FR-006** `versionCode 12`, `versionName "1.4.1"`, `User-Agent` strings
-  bumped to 1.4.1 (two occurrences in CloudLink).
+### App (v1.4.2, versionCode 13)
+- **FR-201** onCreate: restored limit latch + absent `period_start` → seed
+  `lastPeriod = 0` so the boundary processes once (T6/T7 semantics).
+- **FR-202** `CloudLink.buildReport` adds `latch_reason` (coarse, Art. III).
+- **FR-203** HistoryUi FA weekday array Sun..Sat = ی د س چ پ ج ش; test pins
+  real dates (1970-01-01 = Thursday) in both languages.
+- **FR-204** versionCode 13 / 1.4.2 / UA bumped.
 
 ### Worker (dg-v9)
+- **FR-205** report whitelist accepts `latch_reason` (≤ 16 chars).
+- **FR-206** `pendConfirmed`: full-unlock pend confirms on the degraded
+  window landing; `toastConfirmed` says "✓ N-min window granted — limit lock
+  kept" for limit/clock latches (EN+FA).
+- **FR-207** `confirmUnlockLimited` truthful warning when the report shows a
+  limit/clock latch.
+- **FR-208** LOCKED badge carries the reason (limit/parent/offline/clock,
+  EN+FA); grace wins over the latch in the badge (matches the app hero).
+- **FR-209** revoke + 5 % sweep delete undeliverable commands.
+- **FR-210** dead attempts check removed; SW dg-v8 → dg-v9.
 
-- **FR-101** `handleChildPoll` report whitelist adds
-  `latch_reason: String(report.latch_reason || "").slice(0, 16)`.
-- **FR-102** `pendConfirmed`: a full-unlock pend (not `timed`, not `oldApp`)
-  also confirms when `rep.grace_until > Date.now()` (the degraded window
-  landed). `toastConfirmed` then picks an honest message: latched +
-  grace-active + `latch_reason ∈ {limit, clock}` → new key
-  `toastFullWindow` ("✓ %d-min window granted — limit lock kept" / FA), else
-  the existing `toastUnlocked`.
-- **FR-103** `confirmUnlockFull` gains a truthful variant when the last report
-  shows `latch_reason` `limit`/`clock` (new key `confirmUnlockLimited`:
-  explains the phone will get a timed window instead). Old-report fallback =
-  current text.
-- **FR-104** Locked card badge shows the reason when known — new i18n keys
-  `reasonLimit`, `reasonCloud`, `reasonOffline`, `reasonClock` appended to the
-  LOCKED label (unknown reason → plain LOCKED as today).
-- **FR-105** `handleRevoke` deletes that device's undelivered commands; the
-  existing 5 % sweep additionally deletes undelivered commands of revoked
-  devices.
-- **FR-106** Remove the dead `attempts >= 10` branch in `handleChildPair`.
-- **FR-107** SW cache `dg-v8` → `dg-v9`.
+## v1.4.2 Art. XI Disclosure (delivered)
 
-## Failure Modes *(mandatory)*
-
-- **Clock rolled back below the latch period**: `currentPeriodStart` ≤
-  `latchPeriod` → no release (Art. II). Unit-tested.
-- **Cloud/offline/clock latch + restart**: reason not in {`""`,`limit`} → no
-  release. Unit-tested.
-- **Reconcile runs twice** (service restart storm): second run sees
-  `latched=false` → no-op.
-- **Usage stats unavailable at reconcile**: keep counter, still unlatch (same
-  as the live rollover's fallback).
-- **Old app + new worker**: no `latch_reason` in report → all new dashboard
-  paths degrade to today's behavior.
-- **New app + old worker**: extra report field ignored by old whitelist; app
-  still self-fixes the latch (FR-002 is app-local, Art. IX).
-- **Worker deploy failure**: dg-v8 stays live (atomic upload; probe after).
-- **Robolectric gate**: fresh + armed cold starts must pass (v1.3.5 lesson).
-
-## Art. XI Plan
-
-APP UPDATE REQUIRED for F1/F4 (v1.4.1 release APK + QA `.test` build); worker
-side (F3/F5/F6) deploys live instantly as dg-v9 with no APK. The two sides are
-independently safe (see Failure Modes) but the honest-full-unlock UX needs
-both. F2 requires the owner to re-pair the phone (no code).
+**APP UPDATE REQUIRED** — install `DataGuard-v1.4.2-release.apk`
+(versionCode 13; the unstick + FA chart + latch_reason report need it; the
+v1.4.1 rollover fix is included). **Worker: ALREADY LIVE** (dg-v9 deployed
+2026-09-18; one browser reload at most). **F2**: re-pair the phone (new code
+from the dashboard) to restore remote control.

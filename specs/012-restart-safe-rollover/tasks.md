@@ -1,34 +1,42 @@
-# Tasks: 012-restart-safe-rollover
+# Tasks: Restart-Safe Period Rollover (spec-012)
 
-## 1. Spec / Plan
-- [x] T001 spec.md (findings F1–F6 + F2 disclosure, 4 user stories, FR-001..006 + FR-101..107, failure modes, Art. XI plan)
-- [x] T002 plan.md (D1–D10, gates, risks)
+## 1. App implementation
 
-## 2. App (v1.4.1)
-- [x] T010 Prefs: `latchPeriodStart` / `setLatchPeriodStart`
-- [x] T011 New `RolloverPolicy.kt` (pure, no Android imports) + `RolloverPolicyTest` (5 cases: limit+newer releases; limit+equal keeps; limit+older keeps (rollback); cloud/offline/clock+newer keep; empty-reason+newer releases; migration zero releases)
-- [x] T012 WatchdogService: persist latch period at both latch sites; `onCreate` reconcile (unlatch, clear grace, resetTo fresh usage, log)
-- [x] T013 CloudLink.buildReport adds `latch_reason`; UA bump to 1.4.1 (x2)
-- [x] T014 HistoryUi FA weekday array fix + HistoryUiTest real-date mapping assertions (EN + FA)
-- [x] T015 build.gradle.kts versionCode 12 / versionName 1.4.1
+- [x] 1.1 `Prefs.kt`: add `periodStart` / `setPeriodStart` (key `period_start`, default 0L) with the spec-012 comment
+- [x] 1.2 `WatchdogService.kt` `onCreate`: seed `lastPeriod` from the persisted `period_start`; absent ⇒ seed+persist current period (safe migration, FR-002)
+- [x] 1.3 `WatchdogService.kt` `cycle()`: restructure the rollover block — read `effectiveUsage(nowPeriod)` first; limit-latch release gated on `fresh >= 0` (FR-004); pending state retries without advancing `lastPeriod`/`period_start`, logged once per streak (D4); resolved path persists `period_start` (FR-003) and keeps today's unlatch/keep semantics for all reasons
+- [x] 1.4 `app/build.gradle.kts`: versionCode 12, versionName "1.4.1"
+- [x] 1.5 `CloudLink.kt`: UA strings `DataGuard-Android/1.4.1` (2 sites)
 
-## 3. Worker (dg-v9, via asserted edit script + atomic write)
-- [x] T020 i18n EN+FA: add `toastFullWindow`, `confirmUnlockLimited`, `reasonLimit`, `reasonCloud`, `reasonOffline`, `reasonClock`
-- [x] T021 handleChildPoll whitelist: `latch_reason` (≤16 chars)
-- [x] T022 pendConfirmed: full-unlock also confirms on active grace; toastConfirmed picks `toastFullWindow` when latched+grace+reason limit/clock (uses reported window minutes)
-- [x] T023 doFull warning: `confirmUnlockLimited` when `d.report.latch_reason` is limit/clock
-- [x] T024 deviceStatus/locked badge appends reason label when known
-- [x] T025 handleRevoke deletes undelivered commands; 5 % sweep also deletes undelivered commands of revoked devices
-- [x] T026 remove dead `attempts >= 10` branch
-- [x] T027 SW dg-v8 → dg-v9
+## 2. Tests (release gate)
 
-## 4. Verification (release gates)
-- [x] T030 `./gradlew test` all green (28 tests)
-- [x] T031 `node --check` + `node scripts/verify_spec012.js` ALL PASS (compile gate, unit vectors, i18n parity 74/74, markers, regressions)
-- [x] T032 Build: assembleRelease + assembleQa; apksigner verify (same cert); badging 12/1.4.0→1.4.1 (+ .test); UA in dex
-- [x] T033 Deploy worker; live probes (/, /app.js markers, SW dg-v9, 401s); read-only D1 health probe
+- [x] 2.1 `ShadowNetworkStatsManager.kt` (test tree): `@Implements` returning a real empty Bucket; static `failQueries` knob; reset in test setup/teardown
+- [x] 2.2 `RolloverRestartTest` T1–T6 per the plan's verification matrix, driving the real service cold start
+- [x] 2.3 Full suite green: LaunchSmokeTest (2), TabSwitchSmokeTest, HistoryUiTest, GuardStateUiTest, RolloverRestartTest (6)
 
-## 5. Converge
-- [x] T040 README version-history row (app v1.4.1 + dashboard dg-v9); cloud/README.md amendments (report field, revoke cleanup)
-- [x] T041 spec-001 deployed-state bullet + roadmap row
-- [x] T042 spec-012 status Implemented + all boxes checked; commit + push + tags v1.4.1 (+ QA); GitHub Releases; worklog append; Art. XI verdict + F2 re-pair instruction
+## 3. Build & verify
+
+- [x] 3.1 `./gradlew test` (all variants) green
+- [x] 3.2 `assembleRelease` + `assembleQa` clean; apksigner verify both (same cert as previous releases)
+- [x] 3.3 Badging: prod vc=12 vn=1.4.1, QA vc=12 vn=1.4.1-test; UA string present in prod dex
+- [x] 3.4 No test commands or probes to the real device (constraint: never touch the real device)
+
+## 4. Converge
+
+- [x] 4.1 README: version-history row v1.4.1
+- [x] 4.2 spec-001: deployed-state bullet + roadmap e2e item version bump (v1.4.1)
+- [x] 4.3 spec-012: status Implemented; all task + checklist boxes checked
+- [x] 4.4 Worklog append (Task ID 24) per template
+- [x] 4.5 Commit + push (Art. IV token hygiene), tags `v1.4.1` + `v1.4.1-test9`
+- [x] 4.6 GitHub Releases via persisted script `scripts/release_v141.py` (prod + QA prerelease); assets verified uploaded
+- [x] 4.7 Art. XI verdict delivered to the owner: APP UPDATE REQUIRED; Worker/dashboard untouched
+
+
+## 6. v1.4.2 amendment (second session, deep scan) — all done
+- [x] T040 Reconcile with the released v1.4.1 (merge b0a17c1; keep its mechanism; drop the overlapping RolloverPolicy design)
+- [x] T041 onCreate unstick amendment (restored limit latch + absent period_start -> boundary processes once); T6 rewritten + T7 added (same-day over-limit re-locks; 29 tests green)
+- [x] T042 buildReport latch_reason; UA 1.4.2; versionCode 13
+- [x] T043 HistoryUi FA weekday fix + real-date mapping test
+- [x] T044 Worker dg-v9 (edit_worker_spec012.py + _b addendum, 16 asserted edits): honest full unlock, reason badges, grace precedence, revoke/sweep cleanup, dead check removed; verify_spec012.js ALL PASS; deployed + live probes
+- [x] T045 Live smoke (sim only): lock badge, ladder, full-unlock confirm, {full:true} delivered, FR-105 revoke cleanup verified in D1; one-time hygiene delete of the stuck command
+- [x] T046 README v1.4.2 + dg-v9 rows; cloud/README amendments; spec-001 roadmap merged; this amendment

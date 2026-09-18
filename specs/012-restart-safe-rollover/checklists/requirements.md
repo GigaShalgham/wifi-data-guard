@@ -1,35 +1,41 @@
-# Requirements Checklist: spec-012
+# Requirements Checklist: spec-012 Restart-Safe Period Rollover
 
-## User Stories
-- [x] US1: Restart after midnight releases a stale limit latch automatically (reconcile on service create; reason/monotonic guards; migration for pre-v1.4.1 latches)
-- [x] US2: Full unlock on a limit-locked phone is honest end-to-end (truthful confirm text, pend confirms on the degraded window, honest toast, reason-aware card badge; old apps unchanged)
-- [x] US3: FA weekday labels correct; revoked-device commands cleaned; dead code removed
-- [x] US4: Zero regressions (tests, compile gates, i18n parity, SW bump, regression markers)
+## User Stories coverage
 
-## Functional Requirements — App
-- [x] FR-001 latch_period_start persisted at both latch sites
-- [x] FR-002 onCreate reconcile (unlatch + grace clear + counter reset + log; migration via zero-default)
-- [x] FR-003 RolloverPolicy pure object + 5 unit cases
-- [x] FR-004 buildReport latch_reason
-- [x] FR-005 FA weekday fix + real-date test assertions
-- [x] FR-006 versionCode 12 / 1.4.1 / UA bump
+- [x] US1: overnight restart (reboot/battery/killer/update/off-at-midnight) releases a yesterday limit latch within one tick — T1
+- [x] US2: cloud/offline/clock/unpaired latches survive a restart-across-boundary — T2
+- [x] US3: stats-unavailable at the boundary keeps the latch (fail-closed) and retries — T5
+- [x] US4: continuous-run rollover, monthly stability, grace, PIN, cloud, hot polling unchanged — T3/T4 + full suite
 
-## Functional Requirements — Worker
-- [x] FR-101 report whitelist latch_reason
-- [x] FR-102 pendConfirmed grace-window confirm + toastFullWindow honest toast
-- [x] FR-103 confirmUnlockLimited truthful warning
-- [x] FR-104 locked badge reason labels (4 keys, EN+FA)
-- [x] FR-105 revoke + sweep delete undelivered commands
-- [x] FR-106 dead attempts check removed
-- [x] FR-107 SW dg-v9
+## Functional requirements
 
-## Safety / Constitution
-- [x] Art. II: cloud/offline/clock latches never released by reconcile; rollback-safe comparison
-- [x] Art. III: latch_reason is coarse enforcement state only, no PII
-- [x] Art. IV: no secrets in scripts/logs/specs; tokens via files
-- [x] Art. V: EN/FA parity for every new string
-- [x] Art. VIII: dashboard shows confirmed device truth, never optimistic claims
-- [x] Art. IX: app-side fix works fully offline
-- [x] Art. X: signed, versioned, tagged, released; QA build alongside
-- [x] Art. XI: explicit update verdict + re-pair instruction (F2)
-- [x] No test command ever sent to the real device
+- [x] FR-001: `period_start` pref exists and is written/read by the watchdog only
+- [x] FR-002: onCreate seeds from persisted value; absent ⇒ current period persisted (migration-safe)
+- [x] FR-003: resolved rollover persists the new period; security reasons kept
+- [x] FR-004: limit-latch release gated on `effectiveUsage >= 0`; pending retries; once-per-streak logging; period advanced only on resolution
+- [x] FR-005: counter seeding path unchanged and correct after restart (high seed never limit-evaluated)
+- [x] FR-006: grace cleared on resolved rollover; persisted grace honored across restarts
+- [x] FR-007: zero wire/D1/dashboard/PIN/i18n changes
+
+## Non-functional
+
+- [x] No new permissions/dependencies/schedulers
+- [x] Robolectric release gate passes (RolloverRestartTest)
+- [x] Bilingual surfaces untouched (no new strings)
+
+## Safety (Constitution)
+
+- [x] Art. II: no fail-open path (revoked stats + reboot stays latched — T5)
+- [x] Art. VII: VPN control-channel exemption untouched
+- [x] Art. VIII: status line still names the real latch reason
+- [x] Art. IX: fix is fully local/offline — no cloud dependency added
+- [x] Art. X: signed release, versionCode monotonic (12), tagged, GitHub Release with notes
+- [x] Art. XI: disclosure states APP UPDATE REQUIRED + Worker untouched
+
+
+## v1.4.2 Amendment (deep scan)
+- [x] US1b: stuck pre-v1.4.1 limit latch unsticks on first launch (T6); same-day over-limit re-locks same tick (T7); unreadable stats keep the latch
+- [x] US2b: honest full unlock end-to-end (report latch_reason + truthful confirm + window-landing confirmation + honest toast + reason badges + grace precedence; old apps degrade)
+- [x] US3b: FA weekday labels correct; revoked-device commands cleaned; dead code removed
+- [x] US4b: zero regressions (29 tests, compile gates, i18n parity 74/74, regression markers, SW dg-v9)
+- [x] Art. II: fail-closed preserved in every new path; Art. VIII: dashboard truth only; Art. XI: dual disclosure (app v1.4.2 + live dg-v9 + re-pair)
