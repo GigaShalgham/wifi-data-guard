@@ -4,6 +4,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Kotlin](https://img.shields.io/badge/Kotlin-7F52FF?logo=kotlin&logoColor=white)
 ![API 26+](https://img.shields.io/badge/API-26%2B-3DDC84?logo=android&logoColor=white)
+![Cloudflare Workers](https://img.shields.io/badge/dashboard-Cloudflare%20Workers-F6821F?logo=cloudflare&logoColor=white)
 
 Wi-Fi Data Guard is a parental-control app for Android that **monitors Wi-Fi data usage
 in real time and locks the internet connection the moment a daily or monthly quota is
@@ -14,6 +15,10 @@ settings are protected by a PIN that only the parent knows.
 It is deliberately lightweight: no accounts, no analytics, and it works fully
 offline. New in v1.3, the app can *optionally* pair with the parent's cloud
 dashboard for remote control — leaving the app unpaired changes nothing.
+
+> **[Try the live parent-dashboard demo](https://wifi-data-guard.gigaspaceturnip.workers.dev/demo)**
+> — a simulator of the cloud console (lock, timed unlock, limits, history),
+> no app install needed.
 
 ## Table of contents
 
