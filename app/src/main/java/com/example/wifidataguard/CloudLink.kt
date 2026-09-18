@@ -226,6 +226,10 @@ object CloudLink {
         put("grace_until", Prefs.graceUntil(c))
         put("battery_pct", batteryPct(c))
         put("app_version", appVersion(c))
+        // spec-012 FR-004: coarse latch reason (enforcement state, Art. III;
+        // same string the local status line shows) so the dashboard can be
+        // honest about full unlocks on limit-locked phones
+        put("latch_reason", Prefs.latchReason(c))
     }
 
     private fun batteryPct(c: Context): Int = try {
@@ -320,7 +324,7 @@ object CloudLink {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = 15_000
-            setRequestProperty("User-Agent", "DataGuard-Android/1.4.0")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.4.1")
             if (token.isNotEmpty()) setRequestProperty("Authorization", "Bearer $token")
         }
         try {
@@ -341,7 +345,7 @@ object CloudLink {
             readTimeout = readTimeoutMs
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            setRequestProperty("User-Agent", "DataGuard-Android/1.4.0")
+            setRequestProperty("User-Agent", "DataGuard-Android/1.4.1")
             if (token != null) setRequestProperty("Authorization", "Bearer $token")
         }
         try {

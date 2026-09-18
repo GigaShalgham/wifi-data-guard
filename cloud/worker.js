@@ -29,9 +29,14 @@ var I18N = {
     locked: "LOCKED",
     grace: "grace",
     normal: "ok",
+    reasonLimit: "limit",
+    reasonCloud: "parent",
+    reasonOffline: "offline",
+    reasonClock: "clock",
     lockNow: "Lock now",
     unlockNow: "Unlock",
     confirmUnlockFull: "Fully unlock this device? Internet stays open until you lock it again (or its data limit is reached). Device app v1.3.3+ required \u2014 older apps treat this as a 15-minute window.",
+    confirmUnlockLimited: "Fully unlock this device? NOTE: this phone is locked by its data limit or a tamper lock, so it will get a 15-minute window instead of staying open \u2014 its app explains why. Send anyway?",
     pendingLock: "Locking\u2026",
     pendingUnlock: "Unlocking\u2026",
     waitDevice: "waiting for device (up to ~1 min)",
@@ -41,6 +46,7 @@ var I18N = {
     toastTimedFor: "\u2713 Unlocked for %d minutes",
     toastQuick: "\u26a1 Quick unlock: %d min",
     toastOldApp: "\u2713 Unlocked (15 min) \u2014 old phone app",
+    toastFullWindow: "\u2713 %d-min window granted \u2014 limit lock kept",
     toastUnlocked: "\u2713 Unlocked \u2014 confirmed by device",
     settings: "Settings",
     save: "Save",
@@ -99,9 +105,14 @@ var I18N = {
     locked: "قفل",
     grace: "مهلت",
     normal: "سالم",
+    reasonLimit: "حد",
+    reasonCloud: "والد",
+    reasonOffline: "آفلاین",
+    reasonClock: "ساعت",
     lockNow: "قفل فرمان",
     unlockNow: "باز کردن قفل",
     confirmUnlockFull: "این دستگاه کاملاً باز شود؟ اینترنت تا قفل بعدی (یا رسیدن به حد مصرف) باز می‌ماند. نیازمند اپ نسخهٔ ۱.۳.۳+ — نسخه‌های قدیمی‌تر آن را پنجرهٔ ۱۵ دقیقه‌ای می‌بینند.",
+    confirmUnlockLimited: "این دستگاه کاملاً باز شود؟ توجه: قفل این گوشی به دلیل حد مصرف یا دستکاری ساعت است، پس به‌جای باز ماندن، پنجرهٔ ۱۵ دقیقه‌ای می‌گیرد — خود اپ دلیل را نشان می‌دهد. باز کنیم؟",
     pendingLock: "در حال قفل…",
     pendingUnlock: "در حال باز کردن…",
     waitDevice: "در انتظار دستگاه (تا ~۱ دقیقه)",
@@ -111,6 +122,7 @@ var I18N = {
     toastTimedFor: "✓ باز شد برای %d دقیقه",
     toastQuick: "⚡ باز کردن سریع: %d دقیقه",
     toastOldApp: "✓ باز شد (۱۵ دقیقه) — برنامهٔ گوشی قدیمی است",
+    toastFullWindow: "✓ پنجرهٔ %d دقیقه‌ای داده شد — قفل حد مصرف می‌ماند",
     toastUnlocked: "✓ باز شد — تأیید توسط دستگاه",
     settings: "تنظیمات",
     save: "ذخیره",
@@ -224,8 +236,16 @@ function appOld(rep){
 }
 function deviceStatus(rep){
   if (!rep) return { cls: "", label: "—", dot: true };
-  if (rep.latched) return { cls: "locked", label: t("locked") };
+  // spec-012: grace wins over the latch - during a timed unlock the latch is
+  // deliberately KEPT (spec-003) but the child is free; the badge must say
+  // so, exactly like the app's hero (GuardStateUi.stateOf, Art. VIII)
   if (rep.grace_until && rep.grace_until > Date.now()) return { cls: "grace", label: t("grace") };
+  if (rep.latched) {
+    // spec-012 FR-104: append the latch reason when the device reports one
+    var rk = { limit: "reasonLimit", cloud: "reasonCloud",
+               offline: "reasonOffline", clock: "reasonClock" }[rep.latch_reason];
+    return { cls: "locked", label: t("locked") + (rk ? " · " + t(rk) : "") };
+  }
   return { cls: "", label: t("normal") };
 }
 
@@ -305,6 +325,10 @@ function pendConfirmed(p, rep){
   // 15-minute grace window (the latch stays) — confirm when that window
   // lands instead of freezing at "Unlocking…" for the full 90 s
   if (p.oldApp) return !!(rep.grace_until && rep.grace_until > Date.now()) || !rep.latched;
+  // spec-012 FR-102: a full unlock on a limit/clock latch degrades to a timed
+  // window (the latch stays, constitution Art. II) - the window landing IS
+  // the confirmation; the honest toast is picked in toastConfirmed
+  if (rep.grace_until && rep.grace_until > Date.now()) return true;
   return !rep.latched;
 }
 function clearConfirmedPends(){
@@ -694,7 +718,11 @@ function openPicker(d){
   // keyboard-operable, guarded by the same warning the old button had
   var fullRow = document.getElementById("pickFull");
   var doFull = function(){
-    if (!confirm(t("confirmUnlockFull"))) return;
+    // spec-012 FR-103: when the last report shows a limit/clock latch, the
+    // honest warning replaces the over-promising one (Art. VIII)
+    var rr = d.report || {};
+    var limited = rr.latch_reason === "limit" || rr.latch_reason === "clock";
+    if (!confirm(t(limited ? "confirmUnlockLimited" : "confirmUnlockFull"))) return;
     close();
     pend[d.id] = { type: "unlock", until: Date.now() + PEND_TTL_MS, oldApp: appOld(d.report) };
     savePend();
@@ -759,7 +787,15 @@ function toastConfirmed(){
     if (p.type === "lock") { msg = t("toastLocked"); kind = "bad"; }
     else if (p.timed)      { msg = t("toastTimedFor").replace("%d", lang === "fa" ? faNum(p.mins || 15) : String(p.mins || 15)); kind = "ok"; }
     else if (p.oldApp)     { msg = t("toastOldApp"); kind = "ok"; }
-    else                   { msg = t("toastUnlocked"); kind = "ok"; }
+    else if (d.report && d.report.latched && d.report.grace_until &&
+             d.report.grace_until > Date.now() &&
+             (d.report.latch_reason === "limit" || d.report.latch_reason === "clock")) {
+      // spec-012 FR-102: say what actually happened - a timed window, not a
+      // full unlock (Art. VIII)
+      var wmins = Math.max(1, Math.round((d.report.grace_until - Date.now()) / 60000));
+      msg = t("toastFullWindow").replace("%d", lang === "fa" ? faNum(wmins) : String(wmins));
+      kind = "ok";
+    } else                { msg = t("toastUnlocked"); kind = "ok"; }
     toast(msg, kind);
     chime(p.type === "lock" ? "lock" : "unlock");
   }
@@ -863,7 +899,7 @@ var MANIFEST_JSON = JSON.stringify({
   theme_color: "#0b1220",
   icons: [{ src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" }]
 });
-var SW_JS = `const CACHE = "dg-v8";
+var SW_JS = `const CACHE = "dg-v9";
 const SHELL = ["/", "/app.js", "/styles.css", "/icon.svg", "/manifest.webmanifest"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -1550,6 +1586,10 @@ async function handleRevoke(request, env, parent, deviceId) {
   const device = await env.DB.prepare("SELECT id, parent_id FROM devices WHERE id = ?").bind(deviceId).first();
   if (!device || device.parent_id !== parent.id) return notFound();
   await env.DB.prepare("UPDATE devices SET revoked = 1, token_hash = ? WHERE id = ?").bind("revoked-" + randomToken(16), device.id).run();
+  // spec-012 FR-105: a revoked device can never poll again - drop its
+  // undelivered commands so the queue cannot accumulate forever
+  await env.DB.prepare("DELETE FROM commands WHERE device_id = ? AND delivered_at IS NULL").bind(device.id).run().catch(() => {
+  });
   await writeAudit(env.DB, { parent_id: parent.id, device_id: device.id, action: "device_revoked" });
   return json({ ok: true });
 }
@@ -1589,7 +1629,9 @@ async function handleChildPair(request, env) {
   ).bind(code_hash).first();
   if (!row) return unauthorized("invalid code");
   if (row.expires_at < now()) return unauthorized("code expired");
-  if (row.attempts >= 10) return unauthorized("code locked");
+  // spec-012 FR-106: the attempts counter was dead code (lookup is by code
+  // hash, so failed guesses never map to a row to increment); the real
+  // brute-force guard is the 30/h/IP rate limit above
   const consume = await env.DB.prepare(
     "UPDATE pair_codes SET used = 1 WHERE id = ? AND used = 0"
   ).bind(row.id).run();
@@ -1635,6 +1677,7 @@ async function handleChildPoll(request, env) {
       grace_until: Math.max(0, parseInt(report.grace_until, 10) || 0),
       battery_pct: Math.max(0, Math.min(100, parseInt(report.battery_pct, 10) || 0)),
       app_version: String(report.app_version || "").slice(0, 20),
+      latch_reason: String(report.latch_reason || "").slice(0, 16),
       ts: t
     };
     await db.prepare("UPDATE devices SET last_seen_at = ?, last_wait_poll_at = CASE WHEN ? > 0 THEN ? ELSE last_wait_poll_at END, last_report_json = ? WHERE id = ?").bind(t, waitSec, t, JSON.stringify(clean), device.id).run();
@@ -1681,6 +1724,10 @@ async function handleChildPoll(request, env) {
   }
   if (Math.random() < 0.05) {
     await db.prepare("DELETE FROM commands WHERE acked_at IS NOT NULL AND created_at < ?").bind(t - 7 * 864e5).run().catch(() => {
+    });
+    // spec-012 FR-105: undelivered commands of revoked devices are
+    // undeliverable forever - sweep them too
+    await db.prepare("DELETE FROM commands WHERE delivered_at IS NULL AND device_id IN (SELECT id FROM devices WHERE revoked = 1)").run().catch(() => {
     });
   }
   return json({

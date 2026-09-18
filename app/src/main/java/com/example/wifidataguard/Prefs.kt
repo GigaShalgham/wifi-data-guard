@@ -113,6 +113,14 @@ object Prefs {
     fun latchReason(c: Context): String = sp(c).getString("latch_reason", "") ?: ""
     fun setLatchReason(c: Context, v: String) = sp(c).edit().putString("latch_reason", v).apply()
 
+    // spec-012 FR-001: period start (epoch ms) during which the latch was
+    // engaged. Lets a restarted watchdog tell a stale limit latch (engaged in
+    // an older period that has since reset) from a live one, and release it —
+    // the in-memory lastPeriod comparison dies with the process.
+    // 0 = never recorded (pre-v1.4.1 latch) -> treated as "older" (migration).
+    fun latchPeriodStart(c: Context): Long = sp(c).getLong("latch_period_start", 0L)
+    fun setLatchPeriodStart(c: Context, v: Long) = sp(c).edit().putLong("latch_period_start", v).apply()
+
     fun offlineTolMin(c: Context): Int = sp(c).getInt("offline_tol_min", 10)
     fun setOfflineTolMin(c: Context, v: Int) = sp(c).edit().putInt("offline_tol_min", v).apply()
 

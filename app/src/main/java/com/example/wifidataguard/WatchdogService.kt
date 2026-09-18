@@ -39,7 +39,13 @@ class WatchdogService : Service() {
         fun latchCloud(c: Context, reason: String) {
             latched = true
             c.getSharedPreferences("guard_prefs", Context.MODE_PRIVATE)
-                .edit().putBoolean("latched", true).putString("latch_reason", reason).apply()
+                .edit().putBoolean("latched", true).putString("latch_reason", reason)
+                // spec-012 FR-001: remember WHICH period the latch engaged in,
+                // so a restarted watchdog can tell a stale limit latch from a
+                // live one (harmless for cloud-origin reasons — RolloverPolicy
+                // filters on reason).
+                .putLong("latch_period_start", Prefs.currentPeriodStart(c))
+                .apply()
             Logger.d(c, "LATCHED (reason=$reason)")
         }
 
@@ -121,6 +127,23 @@ class WatchdogService : Service() {
 
         lastPeriod = Prefs.currentPeriodStart(this)
         latched = restoreLatched(this)
+        // spec-012 FR-002: restart-time rollover reconcile. The live rollover
+        // in cycle() compares against the in-memory lastPeriod, which dies
+        // with the process — a limit latch engaged yesterday and restored
+        // after midnight would otherwise survive the whole new period (the
+        // v1.2 "won't unlock tomorrow" bug). RolloverPolicy keeps
+        // cloud/offline/clock latches (Art. II) and never releases on a
+        // rolled-back clock (strictly-greater comparison). The counter needs
+        // no extra reset: the seedWith below already uses the CURRENT period.
+        if (latched && RolloverPolicy.shouldRelease(
+                Prefs.latchReason(this), Prefs.latchPeriodStart(this), lastPeriod)) {
+            latched = false
+            persistLatched(this, false)
+            Prefs.setLatchReason(this, "")
+            Prefs.setGraceUntil(this, 0L)
+            Logger.d(this, "reconcile: latch from an older period -> RELEASED " +
+                    "(spec-012 restart-safe rollover)")
+        }
         LiveCounter.seedWith(
             DataStats.effectiveUsage(this, lastPeriod).coerceAtLeast(0))
         // cloud bridge: commands arrive on the main thread via this handler
@@ -202,6 +225,8 @@ class WatchdogService : Service() {
             latched = true
             persistLatched(this, true)
             Prefs.setLatchReason(this, "limit")
+            // spec-012 FR-001: period stamp for the restart-time reconcile
+            Prefs.setLatchPeriodStart(this, nowPeriod)
             Logger.d(this, "*** LIMIT HIT (${humanize(used)}) -> LATCHED ***")
 
             notifyAlert(

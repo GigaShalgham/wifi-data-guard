@@ -79,11 +79,11 @@ The Worker keeps deployment history in the dashboard; simplest rollback is
 | `/api/auth/request-link` | POST | — | parent magic-link sign-in |
 | `/api/pair-code` | POST | parent session | generate 6-digit pairing code |
 | `/api/child/pair` | POST | pairing code | device ↔ parent pairing, returns device token |
-| `/api/child/poll` | POST | device token | usage report ⇄ pending commands + config; optional `"wait": 1..25` (s) hot-mode long-poll (see below) |
+| `/api/child/poll` | POST | device token | usage report ⇄ pending commands + config; optional `"wait": 1..25` (s) hot-mode long-poll (see below); the report whitelist accepts the coarse `latch_reason` (spec-012: `""`/`limit`/`cloud`/`offline`/`clock`, ≤ 16 chars — old apps simply don't send it) |
 | `/api/child/history` | GET | device token | own daily usage history (spec-010, see below) |
 | `/api/child/ack` | POST | device token | acknowledge applied commands |
 | `/api/devices/{id}/command` | POST | parent session | lock / unlock / config |
-| `/api/devices/{id}/revoke` | POST | parent session | unpair device |
+| `/api/devices/{id}/revoke` | POST | parent session | unpair device (spec-012: also deletes its undelivered commands — a revoked device can never poll again) |
 | `/api/devices/{id}/reports` | GET | parent session | usage history (sparkline) |
 | `/api/me`, `/api/audit` | GET | parent session | dashboard state, activity log |
 

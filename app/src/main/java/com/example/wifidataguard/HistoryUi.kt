@@ -20,8 +20,11 @@ object HistoryUi {
         cal.timeInMillis = dayStartUtc(epochDay, tzMin)
         val dow = cal.get(Calendar.DAY_OF_WEEK)   // 1=Sun .. 7=Sat
         return if (fa) {
-            // Persian week: Sat..Fri = شنبه یکشنبه دوشنبه سه‌شنبه چهارشنبه پنجشنبه جمعه
-            arrayOf("ج", "ش", "ی", "د", "س", "چ", "پ")[dow - 1]
+            // Persian week: شنبه(ش) یکشنبه(ی) دوشنبه(د) سه‌شنبه(س) چهارشنبه(چ)
+            // پنجشنبه(پ) جمعه(ج) — indexed by Java DAY_OF_WEEK (1=Sun..7=Sat),
+            // so the array runs Sun..Sat = ی د س چ پ ج ش (spec-012 FR-005 fix;
+            // the old array was misordered and every glyph was off).
+            arrayOf("ی", "د", "س", "چ", "پ", "ج", "ش")[dow - 1]
         } else {
             arrayOf("Su", "Mo", "Tu", "We", "Th", "Fr", "Sa")[dow - 1]
         }

@@ -41,6 +41,21 @@ class HistoryUiTest {
     }
 
     @Test
+    fun weekdayLabelsMatchTheActualWeekday() {
+        // spec-012 FR-005: assert the REAL day-of-week mapping, not just
+        // distinctness. 1970-01-01 (epoch day 0) was a THURSDAY, so the first
+        // seven epoch days run Thu..Wed and pin every glyph to its weekday.
+        val en = arrayOf("Th", "Fr", "Sa", "Su", "Mo", "Tu", "We")
+        val fa = arrayOf("پ", "ج", "ش", "ی", "د", "س", "چ")   // پنجشنبه..چهارشنبه
+        for (i in 0 until 7) {
+            val e = HistoryUi.weekdayLabel(i.toLong(), 0, fa = false)
+            val f = HistoryUi.weekdayLabel(i.toLong(), 0, fa = true)
+            assert(e == en[i]) { "epochDay $i: EN '$e' != '${en[i]}'" }
+            assert(f == fa[i]) { "epochDay $i: FA '$f' != '${fa[i]}'" }
+        }
+    }
+
+    @Test
     fun weekdayLabelsAreTwoLetterInEn() {
         val base = 20_000L
         val labels = (0 until 7).map { HistoryUi.weekdayLabel(base + it, 0, fa = false) }
